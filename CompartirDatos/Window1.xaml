@@ -1,0 +1,31 @@
+﻿<Window x:Class="CompartirDatos.Window1"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:CompartirDatos"
+        mc:Ignorable="d"
+        Title="VentanaCargarArchivo" Height="303" Width="661"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent">
+
+    <Border Background="White" CornerRadius="20" Margin="10">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="15" Direction="0" RenderingBias="Quality" ShadowDepth="1" Opacity="0.2"/>
+        </Border.Effect>
+
+        <DockPanel>
+            <Grid Height="444" Width="807" >
+                <StackPanel Background="{DynamicResource {x:Static SystemColors.ControlDarkDarkBrushKey}}" Margin="0,0,142,140">
+                    <Button Content="Abrir un listado y sumarlo al actual" Height="74" FontFamily="Arial Black" FontSize="22" BorderBrush="Black" Foreground="#FF046FFF" FontWeight="Bold" Name="botonAbrirArchivoLocal" Click="AbrirArchivoLocalClick"/>
+                    <Button Content="Abrir un listado y reemplazar el actual" Height="68" FontSize="22" FontFamily="Arial Black" BorderBrush="Black" Foreground="#FF046FFF" Name="botonAbrirLibreria" Click="AbrirLibreriaClick"/>
+                    <Button Content="Abrir los listados de la web" Height="76" FontSize="22" FontFamily="Arial Black" Foreground="#FF046FFF" BorderBrush="Black" x:Name="botonAbrirWeb" Click="AbrirWebClick"/>
+                    <Button Content="CANCELAR" Height="64" FontFamily="Arial Black" FontSize="24" BorderBrush="Black" Background="#FFDDDDDD" Foreground="#FFB31F1F" Click="botonCancelarClick"/>
+                </StackPanel>
+            </Grid>
+        </DockPanel>
+    </Border>
+</Window>

@@ -1,0 +1,137 @@
+﻿<Window x:Class="CompartirDatos.VentanaGraficas"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Panel de Estadísticas" 
+        Height="846" Width="1200"
+        WindowStyle="None" 
+        ResizeMode="NoResize"
+        AllowsTransparency="True"
+        Background="Transparent"
+        WindowStartupLocation="CenterScreen">
+
+    <Window.Resources>
+        <DataTemplate x:Key="PlantillaEstadistica">
+            <Grid Margin="0,0,0,15">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="200"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Key}" Foreground="White" FontSize="16" VerticalAlignment="Center"/>
+                <Grid Grid.Column="1">
+                    <Rectangle Fill="#22FFFFFF" Height="30" RadiusX="5"/>
+                    <Rectangle Height="30" HorizontalAlignment="Left" RadiusX="5"
+                               Width="{Binding Value}" MaxWidth="850">
+                        <Rectangle.Fill>
+                            <LinearGradientBrush EndPoint="1,0" StartPoint="0,0">
+                                <GradientStop Color="DodgerBlue" Offset="0"/>
+                                <GradientStop Color="LightSkyBlue" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Rectangle.Fill>
+                        <Rectangle.LayoutTransform>
+                            <ScaleTransform ScaleX="10"/>
+                        </Rectangle.LayoutTransform>
+                    </Rectangle>
+                    <TextBlock Text="{Binding Value}" Foreground="White" FontWeight="Bold" 
+                               VerticalAlignment="Center" Margin="15,0"/>
+                </Grid>
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="PlantillaEscalaGrande">
+            <Grid Margin="0,0,0,15">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="200"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Key}" Foreground="White" FontSize="16" VerticalAlignment="Center"/>
+                <Grid Grid.Column="1">
+                    <Rectangle Fill="#22FFFFFF" Height="30" RadiusX="5"/>
+                    <Rectangle Height="30" HorizontalAlignment="Left" RadiusX="5"
+                               Width="{Binding Value}" MaxWidth="850">
+                        <Rectangle.Fill>
+                            <LinearGradientBrush EndPoint="1,0" StartPoint="0,0">
+                                <GradientStop Color="#FF4CAF50" Offset="0"/>
+                                <GradientStop Color="#FF8BC34A" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Rectangle.Fill>
+                        <Rectangle.LayoutTransform>
+                            <ScaleTransform ScaleX="50"/>
+                        </Rectangle.LayoutTransform>
+                    </Rectangle>
+                    <TextBlock Text="{Binding Value}" Foreground="Black" FontWeight="ExtraBold" 
+                               VerticalAlignment="Center" Margin="15,0"/>
+                </Grid>
+            </Grid>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.Background>
+            <ImageBrush ImageSource="/ChatGPT Image 12 feb 2026, 14_29_46.png" Stretch="UniformToFill"/>
+        </Grid.Background>
+
+        <Border Background="#EE000000" CornerRadius="15" Margin="40">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" Margin="30,25,30,10">
+                    <TextBlock Text="PANEL DE CONTROL DE PRODUCCIÓN" 
+                               Foreground="Gold" FontSize="26" FontWeight="Bold"/>
+                    
+                    <Button Content="✕" 
+                            HorizontalAlignment="Right" 
+                            VerticalAlignment="Top"
+                            Background="Transparent" 
+                            Foreground="Gold" 
+                            FontSize="22" 
+                            BorderThickness="0"
+                            Cursor="Hand"
+                            Click="BotonCerrar_Click"/>
+                            
+                    <Separator Background="Gold" VerticalAlignment="Bottom" Margin="0,10,0,0" Opacity="0.4"/>
+                </Grid>
+
+                <TabControl Grid.Row="1" Background="Transparent" BorderThickness="0" Margin="30,10">
+                    <TabItem Header=" PRODUCCIÓN ">
+                        <ScrollViewer VerticalScrollBarVisibility="Hidden">
+                            <StackPanel Margin="0,20">
+                                <TextBlock Text="Ranking de Piezas Totales" Foreground="DodgerBlue" FontSize="18" Margin="0,0,0,15"/>
+                                <ItemsControl x:Name="ListaPiezas" ItemTemplate="{StaticResource PlantillaEstadistica}"/>
+
+                                <TextBlock Text="Eficiencia (Piezas por Hora)" Foreground="#FF8BC34A" FontSize="18" Margin="0,30,0,15"/>
+                                <ItemsControl x:Name="ListaEficiencia" ItemTemplate="{StaticResource PlantillaEscalaGrande}"/>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <TabItem Header=" CALIDAD ">
+                        <ScrollViewer VerticalScrollBarVisibility="Hidden">
+                            <StackPanel Margin="0,20">
+                                <TextBlock Text="Faltas Detectadas" Foreground="OrangeRed" FontSize="18" Margin="0,0,0,15"/>
+                                <ItemsControl x:Name="ListaFaltas" ItemTemplate="{StaticResource PlantillaEstadistica}"/>
+
+                                <TextBlock Text="Porcentaje de Error (%)" Foreground="OrangeRed" FontSize="18" Margin="0,30,0,15"/>
+                                <ItemsControl x:Name="ListaPorcentajeError" ItemTemplate="{StaticResource PlantillaEstadistica}"/>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <TabItem Header=" ASISTENCIA ">
+                        <ScrollViewer VerticalScrollBarVisibility="Hidden">
+                            <StackPanel Margin="0,20">
+                                <TextBlock Text="Días Trabajados" Foreground="#FF8BC34A" FontSize="18" Margin="0,0,0,15"/>
+                                <ItemsControl x:Name="ListaAsistencia" ItemTemplate="{StaticResource PlantillaEscalaGrande}"/>
+
+                                <TextBlock Text="Alertas de Producción" Foreground="Yellow" FontSize="18" Margin="0,30,0,15"/>
+                                <ItemsControl x:Name="ListaAlertas" ItemTemplate="{StaticResource PlantillaEscalaGrande}"/>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+                </TabControl>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
