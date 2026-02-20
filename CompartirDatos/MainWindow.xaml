@@ -478,6 +478,7 @@ Foreground="Black" FontWeight="Bold" FontSize="16"
 Visibility="Collapsed" Name="botonAbrirGraficas" Height="36"
 
 VerticalAlignment="Bottom"/>
+            <Button Grid.Column="1" Content="Enviar Siguiente Lista" HorizontalAlignment="Center" Margin="0,311,0,0" Grid.Row="1" VerticalAlignment="Top" Height="33" Width="207" Name="BtnNotificarCarga" Click="BtnNotificarCarga_Click" Background="#FFD4C142" Foreground="White" FontWeight="Bold" FontSize="16"/>
 
         </Grid>
 

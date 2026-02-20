@@ -44,7 +44,7 @@ namespace CompartirDatos
                 }
             }
         }
-        public void SincronizarYGuardarProgreso()
+        public async Task SincronizarYGuardarProgreso()
         {
             ConfiguracionApp.misAjustes.ListaPiezasTerminadas = listaDePiezas.ToList();
 
@@ -1004,6 +1004,25 @@ namespace CompartirDatos
             });
         }
 
+        private async void BtnNotificarCarga_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                await SincronizarYGuardarProgreso();
 
+                var emisor = new ServicioPipeEmisor();
+                await emisor.EnviarRespuestaOficinaAsync("NUEVA_LISTA_DISPONIBLE");
+
+                // 3. Feedback visual para el jefe
+                Log.Information("📢 Notificación enviada: La fábrica ha sido avisada de nueva carga.");
+                MessageBox.Show("Lista enviada correctamente a producción.", "Santos - Oficina",
+                                MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Error al notificar carga: {ex.Message}");
+                MessageBox.Show("Hubo un error al comunicar con la fábrica.");
+            }
+        }
     }
 }
