@@ -405,6 +405,13 @@ namespace CompartirDatos
                 Log.Information($"USER👤🌳⚠️No se ha seleccionado una pieza con la que trabajar.");
                 return;
             }
+
+            if (piezaSeleccionada.Id == _idPiezaEnviadaActual)
+    {
+        MessageBox.Show($"⚠️ ACCESO DENEGADO\n\nEl operario está trabajando actualmente en la pieza: {piezaSeleccionada.Nombre}.\nNo puedes modificarla hasta que él termine.", 
+                        "Conflicto de Producción", MessageBoxButton.OK, MessageBoxImage.Stop);
+        return; 
+    }
             bool tieneFaltaEnEstaMaquina = piezaSeleccionada.Fabricaciones.Any(f =>
         f.Maquina == MaquinaActual && f.EstadoDeLaPieza == "FALTA/RECHAZO");
 
@@ -414,6 +421,7 @@ namespace CompartirDatos
                                 "Pieza Bloqueada", MessageBoxButton.OK, MessageBoxImage.Stop);
                 return;
             }
+
 
             piezaSeleccionada.Fabricaciones.Add(new Fabricacion
             {
@@ -449,6 +457,12 @@ namespace CompartirDatos
                 var registroDeEstaMaquina = piezaSeleccionada.Fabricaciones
                     .LastOrDefault(x => x.Maquina == MaquinaActual);
 
+                if (piezaSeleccionada.Id == _idPiezaEnviadaActual)
+                {
+                    MessageBox.Show($"⚠️ ACCESO DENEGADO\n\nEl operario está trabajando actualmente en la pieza: {piezaSeleccionada.Nombre}.\nNo puedes modificarla hasta que él termine.",
+                                    "Conflicto de Producción", MessageBoxButton.OK, MessageBoxImage.Stop);
+                    return;
+                }
                 if (registroDeEstaMaquina != null)
                 {
                     string fechaOriginal = registroDeEstaMaquina.Fecha.ToString("dd/MM/yyyy HH:mm:ss");
@@ -625,9 +639,16 @@ namespace CompartirDatos
                 return;
             }
 
-
             if (dgPiezas.SelectedItem is CaracteristicasDePiezas pieza)
             {
+                if (pieza.Id == _idPiezaEnviadaActual)
+                {
+                    MessageBox.Show($"⚠️ ACCESO DENEGADO\n\nEl operario está trabajando actualmente en la pieza: {pieza.Nombre}.\nNo puedes marcar una falta desde la oficina mientras el trabajador la tiene abierta.",
+                                    "Conflicto de Producción", MessageBoxButton.OK, MessageBoxImage.Stop);
+
+                    Log.Warning($"🚫 Intento de modificación bloqueado: La oficina intentó marcar FALTA en la pieza ID {pieza.Id} que está en uso.");
+                    return;
+                }
                 pieza.Fabricaciones.Add(new Fabricacion
                 {
                     Fecha = DateTime.Now,
