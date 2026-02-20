@@ -71,6 +71,7 @@ namespace CompartirDatos
             }
             else
             {
+                _idPiezaEnviadaActual = null;
                 await _emisor.EnviarPiezaAsync(null);
                 Log.Warning("PIPE⚠️ No hay piezas pendientes para enviar.");
             }
@@ -932,6 +933,14 @@ namespace CompartirDatos
 
             Dispatcher.Invoke(async () =>
             {
+                // --- CASO 0: TRABAJADOR LIBRE (Fin de lista) ---
+                if (respuestaLimpia == "LIBRE")
+                {
+                    _idPiezaEnviadaActual = null;
+                    Log.Information("✅ El trabajador ha finalizado su lista y ahora está LIBRE.");
+                    // No necesitamos hacer nada más, solo limpiar el ID para desbloquear la edición.
+                    return;
+                }
                 // --- CASO 1: SINCRONIZACIÓN ---
                 if (respuestaLimpia == "SOLICITAR_PIEZA_ACTUAL")
                 {
@@ -1010,10 +1019,7 @@ namespace CompartirDatos
             {
                 await SincronizarYGuardarProgreso();
 
-                var emisor = new ServicioPipeEmisor();
-                await emisor.EnviarRespuestaOficinaAsync("NUEVA_LISTA_DISPONIBLE");
-
-                // 3. Feedback visual para el jefe
+                // Feedback visual
                 Log.Information("📢 Notificación enviada: La fábrica ha sido avisada de nueva carga.");
                 MessageBox.Show("Lista enviada correctamente a producción.", "Santos - Oficina",
                                 MessageBoxButton.OK, MessageBoxImage.Information);

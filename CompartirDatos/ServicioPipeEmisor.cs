@@ -24,7 +24,7 @@ namespace CompartirDatos
         // MÉTODO B: Para enviar comandos simples (como el aviso de nueva lista)
         public async Task EnviarRespuestaOficinaAsync(string mensaje)
         {
-            await EnviarTextoAsync(mensaje, PipeRespuestas);
+            await EnviarTextoAsync(mensaje, PipePiezas);
         }
 
         private async Task EnviarTextoAsync(string contenido, string nombrePipe)
