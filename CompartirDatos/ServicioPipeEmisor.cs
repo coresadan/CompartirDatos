@@ -14,6 +14,24 @@ namespace CompartirDatos
     {
         private const string PipePiezas = "PipeSantosPiezas";
         private const string PipeRespuestas = "PipeSantosRespuesta";
+        public bool EstaConectado
+    {
+        get
+        {
+            try
+            {
+                // Intentamos conectar con un timeout de solo 100ms. 
+                // Si el programa del trabajador no está abierto, fallará casi al instante.
+                using var client = new NamedPipeClientStream(".", PipePiezas, PipeDirection.Out);
+                client.Connect(100); 
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
 
         // MÉTODO A: Para enviar la pieza completa (JSON)
         public async Task EnviarPiezaAsync(CaracteristicasDePiezas pieza)

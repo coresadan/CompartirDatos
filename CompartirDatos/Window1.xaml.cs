@@ -33,25 +33,51 @@ namespace CompartirDatos
 
         private void AbrirArchivoLocalClick(object sender, RoutedEventArgs e)
         {
-            var mainWindow = Application.Current.Windows.OfType<MainWindow>().FirstOrDefault();
+            var ventanaPrincipal = Application.Current.Windows.OfType<MainWindow>().FirstOrDefault();
+            if (ventanaPrincipal == null) return;
+
+            // 1. ESCUDO: Evitamos cargar si ya hay una pieza en curso (seguridad básica)
+            if (ventanaPrincipal._idPiezaEnviadaActual != null)
+            {
+                MessageBox.Show("🛑 No puedes cargar una lista mientras hay una pieza activa.",
+                                "Santos - Control", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
             OpenFileDialog archivo = new OpenFileDialog();
             archivo.Filter = "Archivos de texto (*.txt)|*.txt|Todos los archivos (*.*)|*.*";
+
             if (archivo.ShowDialog() == true)
             {
                 string rutaArchivo = archivo.FileName;
 
-                Log.Information($"IMPORTACIÓN💾✅ Archivo '{archivo.FileName}' cargado.");
-                ConfiguracionApp.misAjustes.UltimaRutaArchivo = rutaArchivo;
-                ConfiguracionApp.misAjustes.GuardarConfiguracionEnDisco();
-                mainWindow.ArrastrarElArchivoLabel.Visibility = Visibility.Hidden;
+                // 2. IMPORTACIÓN Y LIMPIEZA VISUAL
+                ventanaPrincipal.ArrastrarElArchivoLabel.Visibility = Visibility.Hidden;
+                ventanaPrincipal.FuncionImportarArchivo(rutaArchivo);
 
-                var ventanaPrincipal = Application.Current.Windows.OfType<MainWindow>().FirstOrDefault();
+                // 3. REINICIO DE CICLO CON DETECCIÓN DE CONEXIÓN
+                var primeraPieza = ventanaPrincipal.listaDePiezas.FirstOrDefault(p => !p.EstaTerminada && !p.Datos.Falta);
 
-                if (ventanaPrincipal != null)
+                // --- EL CAMBIO CRÍTICO ---
+                if (primeraPieza != null && ventanaPrincipal._emisor.EstaConectado)
                 {
-                    ventanaPrincipal.FuncionImportarArchivo(rutaArchivo);
-                    Close();
+                    // Hay alguien al otro lado: Activamos el escudo de seguridad
+                    ventanaPrincipal._idPiezaEnviadaActual = primeraPieza.Id;
+                    ventanaPrincipal._trabajadorEstaOcupado = true;
+
+                    // Notificamos al trabajador de la nueva lista
+                    _ = ventanaPrincipal.EnviarSiguientePiezaDisponible();
+                    Log.Information($"💾 LOCAL: Pieza {primeraPieza.Nombre} enviada al trabajador conectado.");
                 }
+                else
+                {
+                    // Oficina sola o sin piezas: No bloqueamos nada, libertad total para editar
+                    ventanaPrincipal._idPiezaEnviadaActual = null;
+                    ventanaPrincipal._trabajadorEstaOcupado = false;
+                    Log.Information("ℹ️ LOCAL: Cargado en modo oficina (sin conexión con fábrica).");
+                }
+
+                Close();
             }
         }
 
@@ -60,33 +86,45 @@ namespace CompartirDatos
             var ventanaPrincipal = Application.Current.Windows.OfType<MainWindow>().FirstOrDefault();
             if (ventanaPrincipal == null) return;
 
-            // --- ESCUDO DE SEGURIDAD ---
-            // Si el trabajador tiene una pieza activa, bloqueamos la sustitución
+            // 1. ESCUDO DE SEGURIDAD (Solo si ya hay algo en marcha)
             if (ventanaPrincipal._idPiezaEnviadaActual != null)
             {
-                MessageBox.Show("¡ATENCIÓN!\n\nNo puedes sustituir la lista actual porque el trabajador está fabricando una pieza.\n\nEspera a que termine o añade nuevas piezas usando la opción de 'Sumar al actual'.",
-                                "Conflicto de Producción", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("🛑 No puedes cambiar la lista mientras el trabajador tiene una pieza abierta.",
+                                "Conflicto de Producción", MessageBoxButton.OK, MessageBoxImage.Stop);
                 return;
             }
 
             OpenFileDialog archivo = new OpenFileDialog();
-            archivo.Filter = "Archivos de Texto (*.txt)|*.txt|Todos los archivos (*.*)|*.*";
-
             if (archivo.ShowDialog() == true)
             {
-                string rutaArchivo = archivo.FileName;
-
-                // 1. Limpieza total de rastro anterior
-                ventanaPrincipal._idPiezaEnviadaActual = null;
+                // 2. LIMPIEZA PREVIA
                 ventanaPrincipal.listaDePiezas.Clear();
+                ventanaPrincipal._idPiezaEnviadaActual = null;
+                ventanaPrincipal._trabajadorEstaOcupado = false;
 
-                // 2. Ajustes visuales y de disco
-                ConfiguracionApp.misAjustes.GuardarConfiguracionEnDisco();
+                // 3. IMPORTACIÓN
+                ventanaPrincipal.FuncionImportarArchivo(archivo.FileName);
                 ventanaPrincipal.ArrastrarElArchivoLabel.Visibility = Visibility.Hidden;
 
-                // 3. Importación y reinicio de ciclo
-                ventanaPrincipal.FuncionImportarArchivo(rutaArchivo);
-                _ = ventanaPrincipal.ReiniciarCicloDeProduccion();
+                // 4. REINICIO DE CICLO INTELIGENTE (Aquí aplicamos la lógica moderna)
+                var primeraPieza = ventanaPrincipal.listaDePiezas.FirstOrDefault(p => !p.EstaTerminada && !p.Datos.Falta);
+
+                // Solo bloqueamos si el trabajador está conectado. Si no, oficina libre.
+                if (primeraPieza != null && ventanaPrincipal._emisor.EstaConectado)
+                {
+                    ventanaPrincipal._idPiezaEnviadaActual = primeraPieza.Id;
+                    ventanaPrincipal._trabajadorEstaOcupado = true;
+
+                    _ = ventanaPrincipal.EnviarSiguientePiezaDisponible();
+                    Log.Information($"📚 LIBRERÍA: Pieza {primeraPieza.Nombre} enviada al trabajador conectado.");
+                }
+                else
+                {
+                    // Reset de seguridad: Si no hay conexión, permitimos editar todo
+                    ventanaPrincipal._idPiezaEnviadaActual = null;
+                    ventanaPrincipal._trabajadorEstaOcupado = false;
+                    Log.Information("ℹ️ LIBRERÍA: Cargada en modo edición (Trabajador desconectado).");
+                }
 
                 Close();
             }

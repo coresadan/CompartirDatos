@@ -28,12 +28,14 @@ namespace CompartirDatos
 
     public partial class MainWindow : Window
     {
-        private bool _trabajadorEstaOcupado = false;
+        // 1. SEMÁFOROS
+        public bool _trabajadorEstaOcupado = false;
+        public int? _idPiezaEnviadaActual;
+        // 2. OBJETOS DE SESIÓN
         public Usuario _usuarioActivo;
         public ConexionConMiAPI miConexion;
-
+        // 3. LA LISTA
         public ObservableCollection<CaracteristicasDePiezas> listaDePiezas { get; set; } = new ObservableCollection<CaracteristicasDePiezas>();
-
 
         public void ComprobacionPiezasTerminadas()
         {
@@ -53,7 +55,6 @@ namespace CompartirDatos
             Log.Information("SISTEMA💾 Progreso guardado correctamente.");
         }
 
-        public int? _idPiezaEnviadaActual;
         public async Task EnviarSiguientePiezaDisponible()
         {
             var piezaParaEnviar = listaDePiezas.FirstOrDefault(p =>
@@ -233,6 +234,13 @@ namespace CompartirDatos
 
         private void BotonImportarDatosClick(object sender, RoutedEventArgs e)
         {
+            // RESET DE SEGURIDAD: 
+            _trabajadorEstaOcupado = false;
+            _idPiezaEnviadaActual = null;
+
+            Log.Information("📂 Abriendo menú de importación. Sistema reseteado.");
+
+            // Abrimos la ventana de opciones
             Window1 ventanaOpcionesImportacion = new Window1();
             ventanaOpcionesImportacion.Owner = this;
             ventanaOpcionesImportacion.ShowDialog();
@@ -394,32 +402,37 @@ namespace CompartirDatos
 
         private async void PiezaTerminadaBotonClick(object sender, RoutedEventArgs e)
         {
-            // 1. VALIDACIÓN DE USUARIO CON AVISO (El fallo estaba aquí)
+            // 1. VALIDACIÓN DE USUARIO
             if (cbUsuarios.SelectedItem is not Usuario usuarioActivo)
             {
                 MessageBox.Show("¡ATENCIÓN! Debe seleccionar un operario antes de marcar una pieza como TERMINADA.",
                                 "Identificación requerida",
                                 MessageBoxButton.OK,
                                 MessageBoxImage.Warning);
-                return; // Ahora el usuario sabe por qué no pasa nada
+                return;
             }
 
-            // 2. Validación de Selección de Pieza
+            // 2. VALIDACIÓN DE SELECCIÓN DE PIEZA
             if (dgPiezas.SelectedItem is not CaracteristicasDePiezas piezaSeleccionada)
             {
                 MessageBox.Show("No hay ninguna pieza seleccionada en la lista.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            // 3. BLOQUEO DE SEGURIDAD (Si el trabajador la tiene abierta)
-            if (piezaSeleccionada.Id == _idPiezaEnviadaActual)
+            // 3. BLOQUEO DE SEGURIDAD REFORZADO (El muro real)
+            if (_trabajadorEstaOcupado && _idPiezaEnviadaActual != null)
             {
-                MessageBox.Show($"⚠️ ACCESO DENEGADO\n\nEl operario de fábrica está trabajando actualmente en: {piezaSeleccionada.Nombre}.",
-                                "Conflicto de Producción", MessageBoxButton.OK, MessageBoxImage.Stop);
-                return;
+                if (piezaSeleccionada.Id.ToString() == _idPiezaEnviadaActual.ToString())
+                {
+                    MessageBox.Show($"🛑 INTERFERENCIA BLOQUEADA\n\nEl trabajador tiene abierta la pieza: {piezaSeleccionada.Nombre}.\n\nNo puedes modificarla desde la oficina mientras él esté trabajando en ella.",
+                                    "Seguridad de Producción", MessageBoxButton.OK, MessageBoxImage.Stop);
+
+                    Log.Warning($"🚫 Bloqueado intento de modificar pieza activa: {piezaSeleccionada.Nombre}");
+                    return; // Detenemos la ejecución aquí
+                }
             }
 
-            // 4. Registro de la fabricación (Tu lógica moderna)
+            // 4. REGISTRO DE LA FABRICACIÓN (Solo llega aquí si pasa el bloqueo)
             piezaSeleccionada.Fabricaciones.Add(new Fabricacion
             {
                 Fecha = DateTime.Now,
@@ -428,12 +441,12 @@ namespace CompartirDatos
                 Operario = usuarioActivo.Nombre
             });
 
-            // 5. Actualización y Persistencia
+            // 5. ACTUALIZACIÓN Y PERSISTENCIA
             ActualizarEstadoGlobalDePieza(piezaSeleccionada);
             await SincronizarYGuardarProgreso();
             GenerarArchivoFaltas();
 
-            // 6. REFRESH VISUAL (Solo oficina, sin resetear el ID del trabajador)
+            // 6. REFRESH VISUAL
             dgPiezas.Items.Refresh();
 
             // 7. SALTO AUTOMÁTICO A LA SIGUIENTE
@@ -444,7 +457,7 @@ namespace CompartirDatos
                 dgPiezas.ScrollIntoView(siguiente);
             }
 
-            Log.Information($"✅ Oficina: Pieza {piezaSeleccionada.Nombre} terminada manualmente por {usuarioActivo.Nombre}");
+            Log.Information($"✅ Oficina: Pieza {piezaSeleccionada.Nombre} registrada.");
             dgPiezas.Focus();
         }
 
@@ -478,7 +491,7 @@ namespace CompartirDatos
                     .LastOrDefault(x => x.Maquina == MaquinaActual);
 
                 // 3. PROTECCIÓN CONTRA EDICIÓN EN CURSO
-                if (piezaSeleccionada.Id == _idPiezaEnviadaActual)
+                if (piezaSeleccionada.Id == _idPiezaEnviadaActual && _trabajadorEstaOcupado)
                 {
                     MessageBox.Show($"⚠️ ACCESO DENEGADO\n\nEl operario está trabajando actualmente en: {piezaSeleccionada.Nombre}.", "Conflicto", MessageBoxButton.OK, MessageBoxImage.Stop);
                     return;
@@ -668,7 +681,7 @@ namespace CompartirDatos
             if (dgPiezas.SelectedItem is not CaracteristicasDePiezas pieza) return;
 
             // --- BLOQUEO DE SEGURIDAD (Mantenemos el ID intacto) ---
-            if (pieza.Id == _idPiezaEnviadaActual)
+            if (pieza.Id == _idPiezaEnviadaActual && _trabajadorEstaOcupado)
             {
                 MessageBox.Show($"⚠️ ACCESO DENEGADO\n\nEl operario de fábrica está trabajando actualmente en la pieza: {pieza.Nombre}.\n\nNo puedes marcar una falta desde la oficina mientras el trabajador la tenga abierta.",
                                 "Conflicto de Producción", MessageBoxButton.OK, MessageBoxImage.Stop);
@@ -958,83 +971,64 @@ namespace CompartirDatos
         {
             if (e.LeftButton == MouseButtonState.Pressed) DragMove();
         }
+
         private void AlRecibirRespuestaDelTrabajador(object? sender, string respuesta)
         {
-            string respuestaLimpia = respuesta.Trim().ToUpper();
+            // 1. Separamos el comando del ID (Ej: "ACABADA|101")
+            var partes = respuesta.Split('|');
+            string comando = partes[0].Trim().ToUpper();
+            string? idRecibido = partes.Length > 1 ? partes[1] : null;
 
             Dispatcher.Invoke(async () =>
             {
-                // --- CASO 0: TRABAJADOR LIBRE (Fin de lista) ---
-                if (respuestaLimpia == "LIBRE")
+                // --- CASO 0: TRABAJADOR LIBRE O CANCELACIÓN ---
+                if (comando == "LIBRE" || comando == "LISTA_CANCELADA_POR_TRABAJADOR")
                 {
                     _idPiezaEnviadaActual = null;
-                    Log.Information("✅ El trabajador ha finalizado su lista y ahora está LIBRE.");
-                    // No necesitamos hacer nada más, solo limpiar el ID para desbloquear la edición.
+                    _trabajadorEstaOcupado = false; // IMPORTANTE: Resetear estado
+                    Log.Information($"✅ Sistema liberado por comando: {comando}");
+                    if (comando.Contains("CANCELADA")) MessageBox.Show("El operario ha cancelado la recepción.", "Aviso");
                     return;
                 }
-                // --- CASO 1: SINCRONIZACIÓN ---
-                if (respuestaLimpia == "SOLICITAR_PIEZA_ACTUAL")
+
+                // --- CASO 1: SINCRONIZACIÓN (SOLICITAR) ---
+                if (comando == "SOLICITAR_PIEZA_ACTUAL")
                 {
-                    Log.Information("🔄 Sincronización manual: Reordenando búsqueda desde el inicio.");
+                    var piezaAEnviar = listaDePiezas.FirstOrDefault(p => p.Id.ToString() == _idPiezaEnviadaActual?.ToString() && !p.EstaTerminada && !p.Datos.Falta)
+                                       ?? listaDePiezas.FirstOrDefault(p => !p.EstaTerminada && !p.Datos.Falta);
 
-                    var piezaAEnviar = listaDePiezas.FirstOrDefault(p => p.Id == _idPiezaEnviadaActual && !p.EstaTerminada && !p.Datos.Falta);
-
-                    if (piezaAEnviar == null)
-                    {
-                        piezaAEnviar = listaDePiezas.OrderBy(p => listaDePiezas.IndexOf(p))
-                                                    .FirstOrDefault(p => !p.EstaTerminada && !p.Datos.Falta);
-                    }
                     if (piezaAEnviar != null)
                     {
                         _idPiezaEnviadaActual = piezaAEnviar.Id;
                         await _emisor.EnviarPiezaAsync(piezaAEnviar);
-                        Log.Information($"🚀 Sincronización exitosa: Iniciando en {piezaAEnviar.Nombre}");
-                    }
-                    else
-                    {
-                        await _emisor.EnviarPiezaAsync(null);
                     }
                     return;
                 }
 
-                // --- CASO 2: CANCELACIÓN (Usamos respuestaLimpia para evitar fallos) ---
-                if (respuestaLimpia == "LISTA_CANCELADA_POR_TRABAJADOR")
-                {
-                    Log.Warning("⚠️ Lista cancelada por el operario.");
-                    _idPiezaEnviadaActual = null;
-                    MessageBox.Show("El operario ha cancelado la recepción.", "Aviso");
-                    return;
-                }
-
-                // --- CASO 3: PROCESAR RESULTADO (TERMINADA / FALTA) ---
-                var piezaActual = listaDePiezas.FirstOrDefault(p => p.Id == _idPiezaEnviadaActual);
+                // --- CASO 2: PROCESAR RESULTADO (TERMINADA / FALTA) ---
+                var idABuscar = idRecibido ?? _idPiezaEnviadaActual?.ToString();
+                var piezaActual = listaDePiezas.FirstOrDefault(p => p.Id.ToString() == idABuscar);
 
                 if (piezaActual != null)
                 {
-                    // Creamos el registro con lo que acaba de pasar
                     var nuevaEntrada = new Fabricacion
                     {
                         Fecha = DateTime.Now,
                         Maquina = MaquinaActual,
                         Operario = "Operario Santos",
-                        EstadoDeLaPieza = respuestaLimpia == "ACABADA" ? "TERMINADO" : "FALTA/RECHAZO"
+                        EstadoDeLaPieza = comando == "ACABADA" ? "TERMINADO" : "FALTA/RECHAZO"
                     };
 
                     if (piezaActual.Fabricaciones == null) piezaActual.Fabricaciones = new List<Fabricacion>();
                     piezaActual.Fabricaciones.Add(nuevaEntrada);
 
-                    // LÓGICA DE ESTADOS
-                    // Si la respuesta es ACABADA, priorizamos que la pieza está lista.
-                    if (respuestaLimpia == "ACABADA")
-                    {
-                        piezaActual.EstaTerminada = true;
-                        piezaActual.Datos.Falta = false;
-                    }
-                    else
-                    {
-                        piezaActual.EstaTerminada = false;
-                        piezaActual.Datos.Falta = true;
-                    }
+                    // Actualizamos estados
+                    piezaActual.EstaTerminada = (comando == "ACABADA");
+                    piezaActual.Datos.Falta = (comando != "ACABADA");
+
+                    // LIBERAMOS EL ID ANTES DE ENVIAR LA SIGUIENTE
+                    _idPiezaEnviadaActual = null;
+                    _trabajadorEstaOcupado = false;
 
                     Log.Information($"[RECIBIDO] {piezaActual.Nombre} marcada como {nuevaEntrada.EstadoDeLaPieza}");
 
@@ -1048,50 +1042,36 @@ namespace CompartirDatos
         {
             try
             {
-                if (_trabajadorEstaOcupado)
-                {
-                    MessageBox.Show("El trabajador todavía tiene una pieza cargada.", "Aviso");
-                    return;
-                }
+                // RESET DE EMERGENCIA: Forzamos el desbloqueo al pulsar.
+                _trabajadorEstaOcupado = false;
+                _idPiezaEnviadaActual = null;
 
-                // 1. Buscamos la siguiente pieza disponible con tu filtro actual
+                // Buscamos la siguiente pieza (Filtro moderno: no terminada y sin falta)
                 var siguiente = listaDePiezas.FirstOrDefault(p => !p.EstaTerminada && !p.Datos.Falta);
 
                 if (siguiente != null)
                 {
-                    // ENVÍO MANUAL: Todo correcto
+                    // Marcamos como ocupado solo para la nueva pieza
                     _idPiezaEnviadaActual = siguiente.Id;
                     _trabajadorEstaOcupado = true;
 
                     await _emisor.EnviarPiezaAsync(siguiente);
-
-                    Log.Information($"🚀 Enviada manualmente: {siguiente.Nombre}");
-                    // He quitado el MessageBox para que no te interrumpa el ritmo de trabajo
+                    Log.Information($"🚀 Sistema liberado y pieza enviada: {siguiente.Nombre}");
                 }
                 else
                 {
-                    // 2. COMPROBACIÓN EXTRA: ¿Realmente no queda nada?
-                    // Si hay piezas que NO están terminadas pero el filtro anterior no las pilló (quizás por el estado Falta)
-                    bool quedanPiezasSinTerminar = listaDePiezas.Any(p => !p.EstaTerminada);
+                    // Si no hay nada apto, limpiamos el visor del trabajador
+                    await _emisor.EnviarPiezaAsync(null);
 
-                    if (!quedanPiezasSinTerminar)
+                    if (!listaDePiezas.Any(p => !p.EstaTerminada))
                     {
-                        // Solo enviamos null si la lista está REALMENTE vacía de trabajo
-                        await _emisor.EnviarPiezaAsync(null);
-                        Log.Information("🏁 Lista finalizada informada al trabajador.");
-                        MessageBox.Show("Has llegado al final de la lista.", "Santos - Fin");
-                    }
-                    else
-                    {
-                        // Si entra aquí, es que hay piezas pero algo en sus estados impide enviarlas
-                        Log.Warning("⚠️ Hay piezas sin terminar, pero no cumplen los requisitos de envío (FALTA activado, etc).");
-                        MessageBox.Show("No se encuentra una pieza apta para enviar. Revisa si las piezas restantes tienen marcado 'Falta'.", "Santos - Aviso");
+                        MessageBox.Show("¡Misión cumplida! Has terminado toda la lista.", "Santos - Producción");
                     }
                 }
             }
             catch (Exception ex)
             {
-                Log.Error($"❌ Error en envío manual: {ex.Message}");
+                Log.Error($"❌ Error en el flujo de envío: {ex.Message}");
             }
         }
     }
