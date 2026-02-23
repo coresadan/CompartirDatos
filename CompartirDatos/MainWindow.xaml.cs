@@ -84,6 +84,7 @@ namespace CompartirDatos
         public MainWindow()
         {
             InitializeComponent();
+            DataContext = this;
 
             DatabaseService.InicializarBaseDeDatos();
 
@@ -1000,6 +1001,7 @@ namespace CompartirDatos
                     if (piezaAEnviar != null)
                     {
                         _idPiezaEnviadaActual = piezaAEnviar.Id;
+                        _trabajadorEstaOcupado = true;
                         await _emisor.EnviarPiezaAsync(piezaAEnviar);
                     }
                     return;
