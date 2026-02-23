@@ -28,11 +28,12 @@ namespace CompartirDatos
 
     public partial class MainWindow : Window
     {
+        private bool _trabajadorEstaOcupado = false;
         public Usuario _usuarioActivo;
         public ConexionConMiAPI miConexion;
 
         public ObservableCollection<CaracteristicasDePiezas> listaDePiezas { get; set; } = new ObservableCollection<CaracteristicasDePiezas>();
-        
+
 
         public void ComprobacionPiezasTerminadas()
         {
@@ -356,7 +357,7 @@ namespace CompartirDatos
                             Fabricaciones = new List<Fabricacion>()
                         };
 
-                        listaDePiezas.Add(pieza); 
+                        listaDePiezas.Add(pieza);
                         piezasNuevasContador++;
                     }
                 }
@@ -391,39 +392,34 @@ namespace CompartirDatos
             await _emisor.EnviarPiezaAsync(señal);
         }
 
-        private void PiezaTerminadaBotonClick(object sender, RoutedEventArgs e)
+        private async void PiezaTerminadaBotonClick(object sender, RoutedEventArgs e)
         {
-            if (!(cbUsuarios.SelectedItem is Usuario usuarioActivo))
+            // 1. VALIDACIÓN DE USUARIO CON AVISO (El fallo estaba aquí)
+            if (cbUsuarios.SelectedItem is not Usuario usuarioActivo)
             {
-                MessageBox.Show("Debe seleccionar un operario antes de continuar.", "Identificación requerida", MessageBoxButton.OK, MessageBoxImage.Warning);
-                Log.Information($"USER👤❌No se ha seleccionado un usuario previamente antes de marcar la pieza.");
+                MessageBox.Show("¡ATENCIÓN! Debe seleccionar un operario antes de marcar una pieza como TERMINADA.",
+                                "Identificación requerida",
+                                MessageBoxButton.OK,
+                                MessageBoxImage.Warning);
+                return; // Ahora el usuario sabe por qué no pasa nada
+            }
+
+            // 2. Validación de Selección de Pieza
+            if (dgPiezas.SelectedItem is not CaracteristicasDePiezas piezaSeleccionada)
+            {
+                MessageBox.Show("No hay ninguna pieza seleccionada en la lista.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            if (!(dgPiezas.SelectedItem is CaracteristicasDePiezas piezaSeleccionada))
-            {
-                MessageBox.Show("No hay ninguna pieza seleccionada. Por favor, seleccione una fila", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
-                Log.Information($"USER👤🌳⚠️No se ha seleccionado una pieza con la que trabajar.");
-                return;
-            }
-
+            // 3. BLOQUEO DE SEGURIDAD (Si el trabajador la tiene abierta)
             if (piezaSeleccionada.Id == _idPiezaEnviadaActual)
-    {
-        MessageBox.Show($"⚠️ ACCESO DENEGADO\n\nEl operario está trabajando actualmente en la pieza: {piezaSeleccionada.Nombre}.\nNo puedes modificarla hasta que él termine.", 
-                        "Conflicto de Producción", MessageBoxButton.OK, MessageBoxImage.Stop);
-        return; 
-    }
-            bool tieneFaltaEnEstaMaquina = piezaSeleccionada.Fabricaciones.Any(f =>
-        f.Maquina == MaquinaActual && f.EstadoDeLaPieza == "FALTA/RECHAZO");
-
-            if (tieneFaltaEnEstaMaquina)
             {
-                MessageBox.Show("Esta pieza tiene un rechazo previo en esta máquina. Debe eliminar el último estado antes de terminarla.",
-                                "Pieza Bloqueada", MessageBoxButton.OK, MessageBoxImage.Stop);
+                MessageBox.Show($"⚠️ ACCESO DENEGADO\n\nEl operario de fábrica está trabajando actualmente en: {piezaSeleccionada.Nombre}.",
+                                "Conflicto de Producción", MessageBoxButton.OK, MessageBoxImage.Stop);
                 return;
             }
 
-
+            // 4. Registro de la fabricación (Tu lógica moderna)
             piezaSeleccionada.Fabricaciones.Add(new Fabricacion
             {
                 Fecha = DateTime.Now,
@@ -432,56 +428,85 @@ namespace CompartirDatos
                 Operario = usuarioActivo.Nombre
             });
 
+            // 5. Actualización y Persistencia
             ActualizarEstadoGlobalDePieza(piezaSeleccionada);
-
-            Log.Information($"PRODUCCIÓN🏭📦 Pieza {piezaSeleccionada.Nombre} terminada por {usuarioActivo.Nombre}💎");
-            SincronizarYGuardarProgreso();
+            await SincronizarYGuardarProgreso();
             GenerarArchivoFaltas();
 
-            int indiceActual = listaDePiezas.IndexOf(piezaSeleccionada);
+            // 6. REFRESH VISUAL (Solo oficina, sin resetear el ID del trabajador)
+            dgPiezas.Items.Refresh();
 
-            var siguiente = listaDePiezas.FirstOrDefault(p => !p.EstaTerminada);
+            // 7. SALTO AUTOMÁTICO A LA SIGUIENTE
+            var siguiente = listaDePiezas.FirstOrDefault(p => !p.EstaTerminada && !p.Datos.Falta);
             if (siguiente != null)
             {
                 dgPiezas.SelectedItem = siguiente;
                 dgPiezas.ScrollIntoView(siguiente);
             }
+
+            Log.Information($"✅ Oficina: Pieza {piezaSeleccionada.Nombre} terminada manualmente por {usuarioActivo.Nombre}");
             dgPiezas.Focus();
         }
 
+        public async Task ReiniciarCicloDeProduccion()
+        {
+            // 1. LIMPIEZA: Quitamos el ID de la pieza enviada porque ya terminó
+            _idPiezaEnviadaActual = null;
+            _trabajadorEstaOcupado = false;
 
+            Log.Information("🔓 Sistema de oficina listo. Esperando envío manual del usuario.");
+
+            // 2. REFRESH VISUAL: Actualizamos los colores y estados en el DataGrid
+            dgPiezas.Items.Refresh();
+
+            await Task.CompletedTask;
+        }
 
         private void RetrocederBotonClick(object sender, RoutedEventArgs e)
         {
+            // 1. VALIDACIÓN DE USUARIO (Mantenemos tu bloqueo perfecto)
+            if (cbUsuarios.SelectedItem is not Usuario usuarioActivo)
+            {
+                MessageBox.Show("¡ATENCIÓN! Debe seleccionar un operario...", "Identificación requerida", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
             if (dgPiezas.SelectedItem is CaracteristicasDePiezas piezaSeleccionada)
             {
+                // 2. BUSQUEDA DEL REGISTRO LOCAL
                 var registroDeEstaMaquina = piezaSeleccionada.Fabricaciones
                     .LastOrDefault(x => x.Maquina == MaquinaActual);
 
+                // 3. PROTECCIÓN CONTRA EDICIÓN EN CURSO
                 if (piezaSeleccionada.Id == _idPiezaEnviadaActual)
                 {
-                    MessageBox.Show($"⚠️ ACCESO DENEGADO\n\nEl operario está trabajando actualmente en la pieza: {piezaSeleccionada.Nombre}.\nNo puedes modificarla hasta que él termine.",
-                                    "Conflicto de Producción", MessageBoxButton.OK, MessageBoxImage.Stop);
+                    MessageBox.Show($"⚠️ ACCESO DENEGADO\n\nEl operario está trabajando actualmente en: {piezaSeleccionada.Nombre}.", "Conflicto", MessageBoxButton.OK, MessageBoxImage.Stop);
                     return;
                 }
+
+                // 4. LÓGICA DE BORRADO
                 if (registroDeEstaMaquina != null)
                 {
-                    string fechaOriginal = registroDeEstaMaquina.Fecha.ToString("dd/MM/yyyy HH:mm:ss");
-                    Log.Verbose($"[CORRECCIÓN🛠️❌] Eliminado: {piezaSeleccionada.Nombre} ({fechaOriginal}) en {MaquinaActual}");
-
                     piezaSeleccionada.Fabricaciones.Remove(registroDeEstaMaquina);
                     ActualizarEstadoGlobalDePieza(piezaSeleccionada);
+
+                    if (_idPiezaEnviadaActual == null)
+                    {
+                        _trabajadorEstaOcupado = false;
+                        Log.Information("🔓 Lista reiniciada. El sistema está listo para un nuevo envío.");
+                    }
 
                     SincronizarYGuardarProgreso();
                     GenerarArchivoFaltas();
 
-                    Log.Warning($"CORRECCIÓN🛠️❌: Eliminado último estado de {piezaSeleccionada.Nombre} en {MaquinaActual}");
+                    dgPiezas.Items.Refresh();
                 }
                 else
                 {
                     MessageBox.Show($"Esta pieza no tiene estados de fabricación en {MaquinaActual}.", "Aviso");
                 }
 
+                // 5. SALTO VISUAL
                 int indiceActual = listaDePiezas.IndexOf(piezaSeleccionada);
                 if (indiceActual > 0)
                 {
@@ -629,51 +654,57 @@ namespace CompartirDatos
             }
         }
 
-        private void BotonFaltaPieza(object sender, RoutedEventArgs e)
+        private async void BotonFaltaPieza(object sender, RoutedEventArgs e)
         {
+            // 1. Validación de Usuario
             if (cbUsuarios.SelectedItem is not Usuario usuario)
             {
                 MessageBox.Show("¡ATENCIÓN! Debe seleccionar un trabajador antes de marcar una pieza como FALTA.",
-                                "Usuario Requerido",
-                                MessageBoxButton.OK,
-                                MessageBoxImage.Warning);
+                                "Usuario Requerido", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            if (dgPiezas.SelectedItem is CaracteristicasDePiezas pieza)
+            // 2. Validación de Selección
+            if (dgPiezas.SelectedItem is not CaracteristicasDePiezas pieza) return;
+
+            // --- BLOQUEO DE SEGURIDAD (Mantenemos el ID intacto) ---
+            if (pieza.Id == _idPiezaEnviadaActual)
             {
-                if (pieza.Id == _idPiezaEnviadaActual)
-                {
-                    MessageBox.Show($"⚠️ ACCESO DENEGADO\n\nEl operario está trabajando actualmente en la pieza: {pieza.Nombre}.\nNo puedes marcar una falta desde la oficina mientras el trabajador la tiene abierta.",
-                                    "Conflicto de Producción", MessageBoxButton.OK, MessageBoxImage.Stop);
+                MessageBox.Show($"⚠️ ACCESO DENEGADO\n\nEl operario de fábrica está trabajando actualmente en la pieza: {pieza.Nombre}.\n\nNo puedes marcar una falta desde la oficina mientras el trabajador la tenga abierta.",
+                                "Conflicto de Producción", MessageBoxButton.OK, MessageBoxImage.Stop);
 
-                    Log.Warning($"🚫 Intento de modificación bloqueado: La oficina intentó marcar FALTA en la pieza ID {pieza.Id} que está en uso.");
-                    return;
-                }
-                pieza.Fabricaciones.Add(new Fabricacion
-                {
-                    Fecha = DateTime.Now,
-                    Maquina = MaquinaActual,
-                    EstadoDeLaPieza = "FALTA/RECHAZO",
-                    Operario = usuario.Nombre
-                });
-
-                ActualizarEstadoGlobalDePieza(pieza);
-
-                Log.Warning($"ALERTA🚨❌📦 Falta/Rechazo en pieza {pieza.Nombre} (MÁQ: {MaquinaActual} (USER: {usuario.Nombre})");
-                SincronizarYGuardarProgreso();
-                GenerarArchivoFaltas();
-
-                int indiceActual = listaDePiezas.IndexOf(pieza);
-                if (indiceActual < listaDePiezas.Count - 1)
-                {
-                    dgPiezas.SelectedItem = listaDePiezas[indiceActual + 1];
-                    dgPiezas.ScrollIntoView(dgPiezas.SelectedItem);
-                }
+                Log.Warning($"🚫 Intento de marcar FALTA bloqueado: {pieza.Nombre} está en uso.");
+                return;
             }
+
+            // 3. Registro del Movimiento
+            pieza.Fabricaciones.Add(new Fabricacion
+            {
+                Fecha = DateTime.Now,
+                Maquina = MaquinaActual,
+                EstadoDeLaPieza = "FALTA/RECHAZO",
+                Operario = usuario.Nombre
+            });
+
+            // 4. Actualización de Lógica y Persistencia
+            ActualizarEstadoGlobalDePieza(pieza);
+            Log.Warning($"ALERTA🚨❌ Falta en pieza {pieza.Nombre} (MÁQ: {MaquinaActual}) por {usuario.Nombre}");
+
+            SincronizarYGuardarProgreso();
+            GenerarArchivoFaltas();
+
+            // 5. Refrescamos visualmente la lista de la oficina.
+            dgPiezas.Items.Refresh();
+
+            // Buscamos la siguiente para mover el foco en tu pantalla de oficina
+            var siguiente = listaDePiezas.FirstOrDefault(p => !p.EstaTerminada && !p.Datos.Falta);
+            if (siguiente != null)
+            {
+                dgPiezas.SelectedItem = siguiente;
+                dgPiezas.ScrollIntoView(siguiente);
+            }
+            dgPiezas.Focus();
         }
-
-
 
         private void ActualizarEstadoGlobalDePieza(CaracteristicasDePiezas pieza)
         {
@@ -997,7 +1028,7 @@ namespace CompartirDatos
                     if (respuestaLimpia == "ACABADA")
                     {
                         piezaActual.EstaTerminada = true;
-                        piezaActual.Datos.Falta = false; 
+                        piezaActual.Datos.Falta = false;
                     }
                     else
                     {
@@ -1017,17 +1048,50 @@ namespace CompartirDatos
         {
             try
             {
-                await SincronizarYGuardarProgreso();
+                if (_trabajadorEstaOcupado)
+                {
+                    MessageBox.Show("El trabajador todavía tiene una pieza cargada.", "Aviso");
+                    return;
+                }
 
-                // Feedback visual
-                Log.Information("📢 Notificación enviada: La fábrica ha sido avisada de nueva carga.");
-                MessageBox.Show("Lista enviada correctamente a producción.", "Santos - Oficina",
-                                MessageBoxButton.OK, MessageBoxImage.Information);
+                // 1. Buscamos la siguiente pieza disponible con tu filtro actual
+                var siguiente = listaDePiezas.FirstOrDefault(p => !p.EstaTerminada && !p.Datos.Falta);
+
+                if (siguiente != null)
+                {
+                    // ENVÍO MANUAL: Todo correcto
+                    _idPiezaEnviadaActual = siguiente.Id;
+                    _trabajadorEstaOcupado = true;
+
+                    await _emisor.EnviarPiezaAsync(siguiente);
+
+                    Log.Information($"🚀 Enviada manualmente: {siguiente.Nombre}");
+                    // He quitado el MessageBox para que no te interrumpa el ritmo de trabajo
+                }
+                else
+                {
+                    // 2. COMPROBACIÓN EXTRA: ¿Realmente no queda nada?
+                    // Si hay piezas que NO están terminadas pero el filtro anterior no las pilló (quizás por el estado Falta)
+                    bool quedanPiezasSinTerminar = listaDePiezas.Any(p => !p.EstaTerminada);
+
+                    if (!quedanPiezasSinTerminar)
+                    {
+                        // Solo enviamos null si la lista está REALMENTE vacía de trabajo
+                        await _emisor.EnviarPiezaAsync(null);
+                        Log.Information("🏁 Lista finalizada informada al trabajador.");
+                        MessageBox.Show("Has llegado al final de la lista.", "Santos - Fin");
+                    }
+                    else
+                    {
+                        // Si entra aquí, es que hay piezas pero algo en sus estados impide enviarlas
+                        Log.Warning("⚠️ Hay piezas sin terminar, pero no cumplen los requisitos de envío (FALTA activado, etc).");
+                        MessageBox.Show("No se encuentra una pieza apta para enviar. Revisa si las piezas restantes tienen marcado 'Falta'.", "Santos - Aviso");
+                    }
+                }
             }
             catch (Exception ex)
             {
-                Log.Error($"Error al notificar carga: {ex.Message}");
-                MessageBox.Show("Hubo un error al comunicar con la fábrica.");
+                Log.Error($"❌ Error en envío manual: {ex.Message}");
             }
         }
     }

@@ -60,29 +60,56 @@ namespace CompartirDatos
             var ventanaPrincipal = Application.Current.Windows.OfType<MainWindow>().FirstOrDefault();
             if (ventanaPrincipal == null) return;
 
+            // --- ESCUDO DE SEGURIDAD ---
+            // Si el trabajador tiene una pieza activa, bloqueamos la sustitución
+            if (ventanaPrincipal._idPiezaEnviadaActual != null)
+            {
+                MessageBox.Show("¡ATENCIÓN!\n\nNo puedes sustituir la lista actual porque el trabajador está fabricando una pieza.\n\nEspera a que termine o añade nuevas piezas usando la opción de 'Sumar al actual'.",
+                                "Conflicto de Producción", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
             OpenFileDialog archivo = new OpenFileDialog();
             archivo.Filter = "Archivos de Texto (*.txt)|*.txt|Todos los archivos (*.*)|*.*";
 
             if (archivo.ShowDialog() == true)
             {
                 string rutaArchivo = archivo.FileName;
+
+                // 1. Limpieza total de rastro anterior
+                ventanaPrincipal._idPiezaEnviadaActual = null;
                 ventanaPrincipal.listaDePiezas.Clear();
-                
+
+                // 2. Ajustes visuales y de disco
                 ConfiguracionApp.misAjustes.GuardarConfiguracionEnDisco();
                 ventanaPrincipal.ArrastrarElArchivoLabel.Visibility = Visibility.Hidden;
 
+                // 3. Importación y reinicio de ciclo
                 ventanaPrincipal.FuncionImportarArchivo(rutaArchivo);
+                _ = ventanaPrincipal.ReiniciarCicloDeProduccion();
+
                 Close();
             }
         }
-    
 
         private void AbrirWebClick(object sender, RoutedEventArgs e)
         {
+            var ventanaPrincipal = Application.Current.Windows.OfType<MainWindow>().FirstOrDefault();
+            if (ventanaPrincipal == null) return;
+
+            // --- MISMA PROTECCIÓN PARA LA WEB ---
+            if (ventanaPrincipal._idPiezaEnviadaActual != null)
+            {
+                MessageBox.Show("No puedes acceder al servidor para cambiar la lista mientras hay una pieza en curso.",
+                                "Conflicto de Producción", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
             var abrirVentanaAPI = new VentanaServidorAPI();
             abrirVentanaAPI.Owner = this;
             abrirVentanaAPI.WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            Log.Information($"ACCESO AL SERVIDOR👤🕵️ El operario accedió a los listados del servidor.");
+
+            Log.Information($"ACCESO AL SERVIDOR👤🕵️ Acceso a listados.");
             abrirVentanaAPI.ShowDialog();
         }
 
