@@ -64,7 +64,6 @@ namespace CompartirDatos
 
                     // 2. REINICIO AGRESIVO (Evita que queden IDs huérfanos de la lista anterior)
                     principal._idPiezaEnviadaActual = null;
-                    principal._trabajadorEstaOcupado = false;
 
                     // 3. Actualización de la oficina
                     principal.listaDePiezas = new ObservableCollection<CaracteristicasDePiezas>(piezasDescargadas);
@@ -78,7 +77,6 @@ namespace CompartirDatos
                     {
                         // IMPORTANTE: Nos aseguramos de que el ID se guarde exactamente igual que como se enviará
                         principal._idPiezaEnviadaActual = primeraPieza.Id;
-                        principal._trabajadorEstaOcupado = true;
 
                         // Disparamos el envío
                         _ = principal.EnviarSiguientePiezaDisponible();

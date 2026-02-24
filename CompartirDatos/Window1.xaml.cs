@@ -51,29 +51,19 @@ namespace CompartirDatos
             {
                 string rutaArchivo = archivo.FileName;
 
-                // 2. IMPORTACIÓN Y LIMPIEZA VISUAL
                 ventanaPrincipal.ArrastrarElArchivoLabel.Visibility = Visibility.Hidden;
                 ventanaPrincipal.FuncionImportarArchivo(rutaArchivo);
 
-                // 3. REINICIO DE CICLO CON DETECCIÓN DE CONEXIÓN
                 var primeraPieza = ventanaPrincipal.listaDePiezas.FirstOrDefault(p => !p.EstaTerminada && !p.Datos.Falta);
 
-                // --- EL CAMBIO CRÍTICO ---
                 if (primeraPieza != null && ventanaPrincipal._emisor.EstaConectado)
                 {
-                    // Hay alguien al otro lado: Activamos el escudo de seguridad
-                    ventanaPrincipal._idPiezaEnviadaActual = primeraPieza.Id;
-                    ventanaPrincipal._trabajadorEstaOcupado = true;
-
-                    // Notificamos al trabajador de la nueva lista
                     _ = ventanaPrincipal.EnviarSiguientePiezaDisponible();
                     Log.Information($"💾 LOCAL: Pieza {primeraPieza.Nombre} enviada al trabajador conectado.");
                 }
                 else
                 {
-                    // Oficina sola o sin piezas: No bloqueamos nada, libertad total para editar
                     ventanaPrincipal._idPiezaEnviadaActual = null;
-                    ventanaPrincipal._trabajadorEstaOcupado = false;
                     Log.Information("ℹ️ LOCAL: Cargado en modo oficina (sin conexión con fábrica).");
                 }
 
@@ -100,7 +90,6 @@ namespace CompartirDatos
                 // 2. LIMPIEZA PREVIA
                 ventanaPrincipal.listaDePiezas.Clear();
                 ventanaPrincipal._idPiezaEnviadaActual = null;
-                ventanaPrincipal._trabajadorEstaOcupado = false;
 
                 // 3. IMPORTACIÓN
                 ventanaPrincipal.FuncionImportarArchivo(archivo.FileName);
@@ -113,7 +102,6 @@ namespace CompartirDatos
                 if (primeraPieza != null && ventanaPrincipal._emisor.EstaConectado)
                 {
                     ventanaPrincipal._idPiezaEnviadaActual = primeraPieza.Id;
-                    ventanaPrincipal._trabajadorEstaOcupado = true;
 
                     _ = ventanaPrincipal.EnviarSiguientePiezaDisponible();
                     Log.Information($"📚 LIBRERÍA: Pieza {primeraPieza.Nombre} enviada al trabajador conectado.");
@@ -122,7 +110,6 @@ namespace CompartirDatos
                 {
                     // Reset de seguridad: Si no hay conexión, permitimos editar todo
                     ventanaPrincipal._idPiezaEnviadaActual = null;
-                    ventanaPrincipal._trabajadorEstaOcupado = false;
                     Log.Information("ℹ️ LIBRERÍA: Cargada en modo edición (Trabajador desconectado).");
                 }
 
@@ -135,7 +122,6 @@ namespace CompartirDatos
             var ventanaPrincipal = Application.Current.Windows.OfType<MainWindow>().FirstOrDefault();
             if (ventanaPrincipal == null) return;
 
-            // --- MISMA PROTECCIÓN PARA LA WEB ---
             if (ventanaPrincipal._idPiezaEnviadaActual != null)
             {
                 MessageBox.Show("No puedes acceder al servidor para cambiar la lista mientras hay una pieza en curso.",

@@ -44,7 +44,7 @@ namespace CompartirDatos
             Datos = new CaracteristicasDePiezas2();
             Fabricaciones = new List<Fabricacion>();
         }
-        public int Id { get; set; }
+        public int Id { get; set; } 
         [Index(0)] // Lee la primera columna sin importar cómo se llame
         public string Nombre { get; set; }
 
