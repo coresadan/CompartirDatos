@@ -987,8 +987,7 @@ namespace CompartirDatos
                 // --- CASO 1: SINCRONIZACIÓN (SOLICITAR) ---
                 if (comando == "SOLICITAR_PIEZA_ACTUAL")
                 {
-                    var piezaAEnviar = listaDePiezas.FirstOrDefault(p => p.Id.ToString() == _idPiezaEnviadaActual?.ToString() && !p.EstaTerminada && !p.Datos.Falta)
-                                       ?? listaDePiezas.FirstOrDefault(p => !p.EstaTerminada && !p.Datos.Falta);
+                    var piezaAEnviar = listaDePiezas.FirstOrDefault(p => !p.EstaTerminada && !p.Datos.Falta);
 
                     if (piezaAEnviar != null)
                     {
@@ -1042,11 +1041,20 @@ namespace CompartirDatos
 
                 if (siguiente != null)
                 {
-                    // Marcamos como ocupado solo para la nueva pieza
-                    _idPiezaEnviadaActual = siguiente.Id;
+                    MessageBoxResult respuesta = MessageBox.Show("Solicitando sincronización con la Fáfrica... Continuar?", "Sincronización", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                    if (respuesta == MessageBoxResult.Yes)
+                    {
+                        // Marcamos como ocupado solo para la nueva pieza
+                        _idPiezaEnviadaActual = siguiente.Id;
 
-                    await _emisor.EnviarPiezaAsync(siguiente);
-                    Log.Information($"🚀 Sistema liberado y pieza enviada: {siguiente.Nombre}");
+                        await _emisor.EnviarPiezaAsync(siguiente);
+                        Log.Information($"🚀 Sistema liberado y pieza enviada: {siguiente.Nombre}");
+                    }
+                    if (respuesta == MessageBoxResult.No)
+                    {
+                        MessageBox.Show("Sincronización cancelada. El sistema sigue esperando.", "Sincronización", MessageBoxButton.OK, MessageBoxImage.Information);
+                        Log.Information("🚫 Sincronización cancelada por el usuario. El sistema sigue esperando.");
+                    }
                 }
                 else
                 {
@@ -1055,7 +1063,7 @@ namespace CompartirDatos
 
                     if (!listaDePiezas.Any(p => !p.EstaTerminada))
                     {
-                        MessageBox.Show("¡Misión cumplida! Has terminado toda la lista.", "Santos - Producción");
+                        MessageBox.Show("¡Lista de Piezas finalizada! Has terminado toda la lista.", "Producción");
                     }
                 }
             }
