@@ -380,7 +380,7 @@ Foreground="Black" BorderBrush="Black" Background="#FFFF9D9D"
 
 Click="BotonFaltaPieza" FontSize="16" Height="59"
 
-VerticalAlignment="Bottom"/>
+VerticalAlignment="Bottom" Name="botonFalta"/>
 
 
             <ComboBox Grid.Column="3" 

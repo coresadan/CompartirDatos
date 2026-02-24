@@ -85,6 +85,10 @@ namespace CompartirDatos
             InitializeComponent();
             DataContext = this;
 
+            PiezaTerminadaBoton.Visibility = Visibility.Hidden;
+            botonFalta.Visibility = Visibility.Hidden;
+            RetrocederBoton.Visibility = Visibility.Hidden;
+
             DatabaseService.InicializarBaseDeDatos();
 
             var piezasGuardadas = DatabaseService.CargarPiezasDesdeBD();
@@ -851,6 +855,9 @@ namespace CompartirDatos
 
                 _usuarioActivo = seleccionado;
                 await GestionUsuarios.EnviarInicioTurno(_usuarioActivo);
+                PiezaTerminadaBoton.Visibility = Visibility.Visible;
+                botonFalta.Visibility = Visibility.Visible;
+                RetrocederBoton.Visibility = Visibility.Visible;
                 Log.Information($"🚀 Turno iniciado correctamente para {_usuarioActivo.Nombre}");
             }
             else
