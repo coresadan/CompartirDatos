@@ -4,6 +4,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics.Eventing.Reader;
 using System.IO;
+using System.Net.Http;
 using System.Net.Http.Json;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -52,6 +53,8 @@ namespace CompartirDatos
 
             ConfiguracionApp.misAjustes.GuardarConfiguracionEnDisco();
             Log.Information("SISTEMA💾 Progreso guardado correctamente.");
+         // LANZAMOS LA SINCRONIZACIÓN AL BOT TAMBIÉN
+            await SincronizarConAPI();
         }
 
         public async Task EnviarSiguientePiezaDisponible()
@@ -84,11 +87,9 @@ namespace CompartirDatos
         {
             InitializeComponent();
             DataContext = this;
+            _ = SincronizarConAPI();
 
-            PiezaTerminadaBoton.Visibility = Visibility.Hidden;
-            botonFalta.Visibility = Visibility.Hidden;
-            RetrocederBoton.Visibility = Visibility.Hidden;
-            botonCerrarSesion.Visibility = Visibility.Hidden;
+            SetVisibilidadControles(Visibility.Hidden);
 
             DatabaseService.InicializarBaseDeDatos();
 
@@ -856,10 +857,7 @@ namespace CompartirDatos
 
                 _usuarioActivo = seleccionado;
                 await GestionUsuarios.EnviarInicioTurno(_usuarioActivo);
-                PiezaTerminadaBoton.Visibility = Visibility.Visible;
-                botonFalta.Visibility = Visibility.Visible;
-                RetrocederBoton.Visibility = Visibility.Visible;
-                botonCerrarSesion.Visibility = Visibility.Visible;
+                SetVisibilidadControles(Visibility.Visible);
                 Log.Information($"🚀 Turno iniciado correctamente para {_usuarioActivo.Nombre}");
             }
             else
@@ -1115,6 +1113,28 @@ namespace CompartirDatos
             botonFalta.Visibility = estado;
             RetrocederBoton.Visibility = estado;
             botonCerrarSesion.Visibility = estado;
+        }
+
+        public async Task SincronizarConAPI()
+        {
+            try
+            {
+                using var client = new HttpClient();
+                // Puerto 5000 como confirmamos antes
+                string url = "http://localhost:5106/Produccion/Sincronizar";
+
+                // Enviamos la lista actual a la API
+                var response = await client.PostAsJsonAsync(url, listaDePiezas);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    Log.Information("TELEGRAMBot🤖 Datos sincronizados correctamente.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"API⚠️ No se pudo conectar con la API (¿Está apagada?): {ex.Message}");
+            }
         }
     }
 }
