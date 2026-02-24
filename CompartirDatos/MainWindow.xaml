@@ -479,6 +479,7 @@ Visibility="Collapsed" Name="botonAbrirGraficas" Height="36"
 
 VerticalAlignment="Bottom"/>
             <Button Grid.Column="1" Content="Sincronizar" HorizontalAlignment="Center" Margin="0,311,0,0" Grid.Row="1" VerticalAlignment="Top" Height="33" Width="207" Name="BtnNotificarCarga" Click="BtnNotificarCarga_Click" Background="#FFD4C142" Foreground="White" FontWeight="Bold" FontSize="16"/>
+            <Button Grid.Column="1" Content="Cerrar sesión" HorizontalAlignment="Center" Margin="0,255,0,0" Grid.Row="1" VerticalAlignment="Top" Width="136" Height="21" Background="#FFFF33BF" Foreground="White" FontWeight="Bold" FontSize="14" Name="botonCerrarSesion" Click="botonCerrarSesionClick"/>
 
         </Grid>
 

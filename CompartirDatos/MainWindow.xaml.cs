@@ -88,6 +88,7 @@ namespace CompartirDatos
             PiezaTerminadaBoton.Visibility = Visibility.Hidden;
             botonFalta.Visibility = Visibility.Hidden;
             RetrocederBoton.Visibility = Visibility.Hidden;
+            botonCerrarSesion.Visibility = Visibility.Hidden;
 
             DatabaseService.InicializarBaseDeDatos();
 
@@ -858,6 +859,7 @@ namespace CompartirDatos
                 PiezaTerminadaBoton.Visibility = Visibility.Visible;
                 botonFalta.Visibility = Visibility.Visible;
                 RetrocederBoton.Visibility = Visibility.Visible;
+                botonCerrarSesion.Visibility = Visibility.Visible;
                 Log.Information($"🚀 Turno iniciado correctamente para {_usuarioActivo.Nombre}");
             }
             else
@@ -1078,6 +1080,41 @@ namespace CompartirDatos
             {
                 Log.Error($"❌ Error en el flujo de envío: {ex.Message}");
             }
+        }
+
+        private async void botonCerrarSesionClick(object sender, RoutedEventArgs e)
+        {
+            var usuarioQueSale = _usuarioActivo;
+
+            if (usuarioQueSale != null)
+            {
+                try
+                {
+                    await GestionUsuarios.EnviarFinTurno(usuarioQueSale);
+                    Log.Information($"🚪 Sesión finalizada: {usuarioQueSale.Nombre}");
+
+                    cbUsuarios.SelectionChanged -= ComboBox_SeleccionUsuario;
+                    cbUsuarios.SelectedItem = null;
+                    _usuarioActivo = null;
+                    cbUsuarios.SelectionChanged += ComboBox_SeleccionUsuario;
+
+                    SetVisibilidadControles(Visibility.Hidden);
+
+                    MessageBox.Show("Sesión cerrada correctamente.", "Santos - Seguridad");
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"❌ Error al cerrar sesión: {ex.Message}");
+                }
+            }
+        }
+
+        private void SetVisibilidadControles(Visibility estado)
+        {
+            PiezaTerminadaBoton.Visibility = estado;
+            botonFalta.Visibility = estado;
+            RetrocederBoton.Visibility = estado;
+            botonCerrarSesion.Visibility = estado;
         }
     }
 }
