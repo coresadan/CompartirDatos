@@ -99,19 +99,23 @@ namespace CompartirDatos
         {
             try
             {
-                using (var cliente = new HttpClient())
-                {
-                    var respuesta = await cliente.PostAsJsonAsync("http://localhost:5106/turnos/iniciar", usuario);
+                using var cliente = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
 
-                    if (respuesta.IsSuccessStatusCode)
-                        Log.Information($"🚀 API: Inicio de turno enviado para {usuario.Nombre}");
-                    else
-                        Log.Warning("⚠️ La API recibió la llamada pero dio error.");
+                var respuesta = await cliente.PostAsJsonAsync("http://localhost:5106/turnos/iniciar", usuario);
+
+                if (respuesta.IsSuccessStatusCode)
+                {
+                    Log.Information($"🚀 API: Turno confirmado en DB para {usuario.Nombre}");
+                }
+                else
+                {
+                    var errorContent = await respuesta.Content.ReadAsStringAsync();
+                    Log.Warning($"⚠️ API respondió con error: {respuesta.StatusCode} - {errorContent}");
                 }
             }
             catch (Exception ex)
             {
-                Log.Error($"❌ No se pudo conectar con la API para iniciar turno: {ex.Message}");
+                Log.Error($"❌ Error de conexión: ¿Está la API encendida en el puerto 5106? | {ex.Message}");
             }
         }
 

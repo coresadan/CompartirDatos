@@ -1,0 +1,33 @@
+﻿<Window x:Class="CompartirDatos.VentanaSeleccionarSemana"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Seleccionar Semana" Height="250" Width="400"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        WindowStartupLocation="CenterOwner">
+
+    <Border Background="White" CornerRadius="15" BorderBrush="#FF00CC66" BorderThickness="2">
+        <StackPanel Margin="20">
+            <TextBlock Text="SELECCIONAR SEMANA DE TRABAJO" 
+                       FontSize="18" FontWeight="Bold" Foreground="#FF333333" 
+                       HorizontalAlignment="Center" Margin="0,0,0,20"/>
+
+            <TextBlock Text="Semanas disponibles en la base de datos:" Margin="0,5"/>
+
+            <ComboBox x:Name="cbSemanas" Height="35" FontSize="16" VerticalContentAlignment="Center">
+            </ComboBox>
+
+            <Grid Margin="0,30,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <Button Content="CANCELAR" Grid.Column="0" Margin="5" Height="40" 
+                        Click="BtnCancelar_Click" Background="#FFE5E5E5"/>
+
+                <Button Content="CARGAR SEMANA" Grid.Column="1" Margin="5" Height="40" 
+                        Click="BtnAceptar_Click" Background="#FF00CC66" Foreground="White" FontWeight="Bold"/>
+            </Grid>
+        </StackPanel>
+    </Border>
+</Window>

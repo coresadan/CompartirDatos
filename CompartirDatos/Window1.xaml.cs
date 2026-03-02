@@ -141,5 +141,16 @@ namespace CompartirDatos
         {
             Close();
         }
+
+        private void AbrirBDClick(object sender, RoutedEventArgs e)
+        {
+            VentanaSeleccionarSemana ventanaSemana = new VentanaSeleccionarSemana();
+            ventanaSemana.Owner = this;
+
+            if (ventanaSemana.ShowDialog() == true)
+            {
+                this.DialogResult = true;
+            }
+        }
     }
 }

@@ -11,6 +11,12 @@ using System.Threading.Tasks;
 
 namespace CompartirDatos
 {
+    public static class EstadosPieza
+    {
+        public const string Terminado = "Terminado";
+        public const string Falta = "FALTA/RECHAZO";
+        public const string Pendiente = "Pendiente";
+    }
     public class CaracteristicasDePiezas : INotifyPropertyChanged
     {
         public event PropertyChangedEventHandler PropertyChanged;
@@ -57,6 +63,8 @@ namespace CompartirDatos
         [Index(3)]
         public decimal Ancho { get; set; }
 
+        public string Estado { get; set; }
+
         public CaracteristicasDePiezas2 Datos { get; set; }
 
         public List<Fabricacion> Fabricaciones { get; set; }
@@ -92,6 +100,7 @@ namespace CompartirDatos
         public string Maquina { get; set; }
         public string EstadoDeLaPieza { get; set; }
         public string Operario { get; set; }
+        public int OperarioId { get; set; }
 
     }
 }

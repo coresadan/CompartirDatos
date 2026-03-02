@@ -56,6 +56,14 @@ namespace CompartirDatos
          // LANZAMOS LA SINCRONIZACIÓN AL BOT TAMBIÉN
             await SincronizarConAPI();
         }
+        public static class EstadosPieza
+        {
+            public const string Pendiente = "Pendiente";
+            public const string Urgente = "Urgente";
+            public const string EnProceso = "En Proceso";
+            public const string Terminado = "Terminado";
+            public const string Falta = "FALTA/RECHAZO";
+        }
 
         public async Task EnviarSiguientePiezaDisponible()
         {
@@ -405,6 +413,13 @@ namespace CompartirDatos
             await _emisor.EnviarPiezaAsync(señal);
         }
 
+        private async Task NotificarCambioEstadoApi(int idPieza, string estado)
+        {
+            using var client = new HttpClient();
+            // Llamamos a nuestra nueva API
+            await client.PostAsync($"http://localhost:5106/Produccion/ActualizarEstado?id={idPieza}&nuevoEstado={estado}", null);
+        }
+
         private async void PiezaTerminadaBotonClick(object sender, RoutedEventArgs e)
         {
             if (cbUsuarios.SelectedItem is not Usuario usuarioActivo)
@@ -444,6 +459,7 @@ namespace CompartirDatos
                 // 5. ACTUALIZACIÓN Y PERSISTENCIA
                 ActualizarEstadoGlobalDePieza(piezaSeleccionada);
                 await SincronizarYGuardarProgreso();
+                await NotificarCambioEstadoApi(piezaSeleccionada.Id, EstadosPieza.Terminado);
                 GenerarArchivoFaltas();
 
                 // 6. REFRESH VISUAL
@@ -475,7 +491,7 @@ namespace CompartirDatos
             await Task.CompletedTask;
         }
 
-        private void RetrocederBotonClick(object sender, RoutedEventArgs e)
+        private async void RetrocederBotonClick(object sender, RoutedEventArgs e)
         {
             // 1. VALIDACIÓN DE USUARIO (Mantenemos tu bloqueo perfecto)
             if (cbUsuarios.SelectedItem is not Usuario usuarioActivo)
@@ -502,6 +518,7 @@ namespace CompartirDatos
                 {
                     piezaSeleccionada.Fabricaciones.Remove(registroDeEstaMaquina);
                     ActualizarEstadoGlobalDePieza(piezaSeleccionada);
+                    await NotificarCambioEstadoApi(piezaSeleccionada.Id, EstadosPieza.Pendiente);
 
                     if (_idPiezaEnviadaActual == null)
                     {
@@ -698,6 +715,7 @@ namespace CompartirDatos
                 EstadoDeLaPieza = "FALTA/RECHAZO",
                 Operario = usuario.Nombre
             });
+            await NotificarCambioEstadoApi(pieza.Id, EstadosPieza.Falta);
 
             // 4. Actualización de Lógica y Persistencia
             ActualizarEstadoGlobalDePieza(pieza);
