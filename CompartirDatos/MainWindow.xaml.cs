@@ -18,6 +18,8 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
+using System.Linq;
+using System.Text.Json;
 
 
 namespace CompartirDatos
@@ -67,6 +69,12 @@ namespace CompartirDatos
 
         public async Task EnviarSiguientePiezaDisponible()
         {
+            if (_idPiezaEnviadaActual != null)
+            {
+                Log.Information($"PIPEℹ️ El trabajador ya tiene la pieza {_idPiezaEnviadaActual} en pantalla. Esperando finalización.");
+                return;
+            }
+
             var piezaParaEnviar = listaDePiezas.FirstOrDefault(p =>
                 !p.EstaTerminada &&
                 !p.Datos.Falta &&
@@ -75,17 +83,16 @@ namespace CompartirDatos
             if (piezaParaEnviar != null)
             {
                 _idPiezaEnviadaActual = piezaParaEnviar.Id;
+
                 await Task.Delay(100);
                 await _emisor.EnviarPiezaAsync(piezaParaEnviar);
-
-
-                Log.Information($"PIPE🚀 Enviadas {piezaParaEnviar.Id}{piezaParaEnviar.Nombre} piezas al visor del trabajador.");
+                Log.Information($"PIPE🚀 Enviada pieza única: {piezaParaEnviar.Id} - {piezaParaEnviar.Nombre}");
             }
             else
             {
                 _idPiezaEnviadaActual = null;
                 await _emisor.EnviarPiezaAsync(null);
-                Log.Warning("PIPE⚠️ No hay piezas pendientes para enviar.");
+                Log.Warning("PIPE⚠️ No quedan piezas pendientes en la lista.");
             }
         }
 
@@ -493,7 +500,6 @@ namespace CompartirDatos
 
         private async void RetrocederBotonClick(object sender, RoutedEventArgs e)
         {
-            // 1. VALIDACIÓN DE USUARIO (Mantenemos tu bloqueo perfecto)
             if (cbUsuarios.SelectedItem is not Usuario usuarioActivo)
             {
                 MessageBox.Show("¡ATENCIÓN! Debe seleccionar un operario...", "Identificación requerida", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -502,30 +508,40 @@ namespace CompartirDatos
 
             if (dgPiezas.SelectedItem is CaracteristicasDePiezas piezaSeleccionada)
             {
-                // 2. BUSQUEDA DEL REGISTRO LOCAL
                 var registroDeEstaMaquina = piezaSeleccionada.Fabricaciones
                     .LastOrDefault(x => x.Maquina == MaquinaActual);
 
-                // 3. PROTECCIÓN CONTRA EDICIÓN EN CURSO
                 if (piezaSeleccionada.Id == _idPiezaEnviadaActual)
                 {
                     MessageBox.Show($"⚠️ ACCESO DENEGADO\n\nEl operario está trabajando actualmente en: {piezaSeleccionada.Nombre}.", "Conflicto", MessageBoxButton.OK, MessageBoxImage.Stop);
                     return;
                 }
 
-                // 4. LÓGICA DE BORRADO
                 if (registroDeEstaMaquina != null)
                 {
                     piezaSeleccionada.Fabricaciones.Remove(registroDeEstaMaquina);
+                    piezaSeleccionada.EstaTerminada = false;
+
+                    if (piezaSeleccionada.Piezaurgente || piezaSeleccionada.Estado == EstadosPieza.Urgente)
+                    {
+                        piezaSeleccionada.Estado = EstadosPieza.Urgente;
+                        piezaSeleccionada.Piezaurgente = true; // Sincronizamos el booleano por si acaso
+                    }
+                    else
+                    {
+                        piezaSeleccionada.Estado = EstadosPieza.Pendiente;
+                    }
+
                     ActualizarEstadoGlobalDePieza(piezaSeleccionada);
-                    await NotificarCambioEstadoApi(piezaSeleccionada.Id, EstadosPieza.Pendiente);
+
+                    string estadoReal = piezaSeleccionada.Estado;
+
+                    await NotificarCambioEstadoApi(piezaSeleccionada.Id, estadoReal);
 
                     if (_idPiezaEnviadaActual == null)
                     {
-
-                        Log.Information("🔓 Lista reiniciada. El sistema está listo para un nuevo envío.");
+                        Log.Information($"REVERSAO ⏪ Pieza {piezaSeleccionada.Nombre} devuelta a: {estadoReal}");
                     }
-
                     SincronizarYGuardarProgreso();
                     GenerarArchivoFaltas();
 
@@ -536,7 +552,6 @@ namespace CompartirDatos
                     MessageBox.Show($"Esta pieza no tiene estados de fabricación en {MaquinaActual}.", "Aviso");
                 }
 
-                // 5. SALTO VISUAL
                 int indiceActual = listaDePiezas.IndexOf(piezaSeleccionada);
                 if (indiceActual > 0)
                 {
@@ -783,6 +798,15 @@ namespace CompartirDatos
             pieza.EstaTerminada = false;
             pieza.Datos.Falta = false;
             pieza.Datos.EsFaltaParcial = false;
+
+            if (pieza.Piezaurgente)
+            {
+                pieza.Estado = "Urgente"; // Se vuelve rojo
+            }
+            else
+            {
+                pieza.Estado = "Pendiente"; // Se vuelve blanco
+            }
         }
 
         public void comboBoxResoluciones_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -993,63 +1017,58 @@ namespace CompartirDatos
 
         private void AlRecibirRespuestaDelTrabajador(object? sender, string respuesta)
         {
-            // 1. Separamos el comando del ID (Ej: "ACABADA|101")
             var partes = respuesta.Split('|');
             string comando = partes[0].Trim().ToUpper();
             string? idRecibido = partes.Length > 1 ? partes[1] : null;
 
             Dispatcher.Invoke(async () =>
             {
-                // --- CASO 0: TRABAJADOR LIBRE O CANCELACIÓN ---
+                // --- CASO 0: LIBERACIÓN ---
                 if (comando == "LIBRE" || comando == "LISTA_CANCELADA_POR_TRABAJADOR")
                 {
                     _idPiezaEnviadaActual = null;
                     Log.Information($"✅ Sistema liberado por comando: {comando}");
-                    if (comando.Contains("CANCELADA")) MessageBox.Show("El operario ha cancelado la recepción.", "Aviso");
                     return;
                 }
 
-                // --- CASO 1: SINCRONIZACIÓN (SOLICITAR) ---
+                // --- CASO 1: SOLICITUD DE PIEZA ---
                 if (comando == "SOLICITAR_PIEZA_ACTUAL")
                 {
-                    var piezaAEnviar = listaDePiezas.FirstOrDefault(p => !p.EstaTerminada && !p.Datos.Falta);
+                    var piezaParaEnviar = listaDePiezas
+                        .Where(p => (p.Estado == "Pendiente" || p.Estado == "Urgente") && !p.EstaTerminada)
+                        .OrderByDescending(p => p.Piezaurgente)
+                        .FirstOrDefault();
 
-                    if (piezaAEnviar != null)
+                    if (piezaParaEnviar != null)
                     {
-                        _idPiezaEnviadaActual = piezaAEnviar.Id;
-                        await _emisor.EnviarPiezaAsync(piezaAEnviar);
+                        _idPiezaEnviadaActual = piezaParaEnviar.Id; // Guardamos el ID (int)
+
+                        // USAMOS EL MÉTODO REAL DEL EMISOR:
+                        await _emisor.EnviarPiezaAsync(piezaParaEnviar);
+
+                        Log.Information($"Sent✅ Enviada pieza {piezaParaEnviar.Nombre}");
+                    }
+                    else
+                    {
+                        _idPiezaEnviadaActual = null;
+                        // Enviamos un texto vacío o null usando el método de respuestas
+                        await _emisor.EnviarRespuestaOficinaAsync("null");
+                        Log.Information("Sent🏁 No hay más piezas pendientes.");
                     }
                     return;
                 }
 
-                // --- CASO 2: PROCESAR RESULTADO (TERMINADA / FALTA) ---
+                // --- CASO 2: PROCESAR RESULTADO ---
                 var idABuscar = idRecibido ?? _idPiezaEnviadaActual?.ToString();
                 var piezaActual = listaDePiezas.FirstOrDefault(p => p.Id.ToString() == idABuscar);
 
                 if (piezaActual != null)
                 {
-                    var nuevaEntrada = new Fabricacion
-                    {
-                        Fecha = DateTime.Now,
-                        Maquina = MaquinaActual,
-                        Operario = "Operario Santos",
-                        EstadoDeLaPieza = comando == "ACABADA" ? "TERMINADO" : "FALTA/RECHAZO"
-                    };
-
-                    if (piezaActual.Fabricaciones == null) piezaActual.Fabricaciones = new List<Fabricacion>();
-                    piezaActual.Fabricaciones.Add(nuevaEntrada);
-
-                    // Actualizamos estados
-                    piezaActual.EstaTerminada = (comando == "ACABADA");
-                    piezaActual.Datos.Falta = (comando != "ACABADA");
-
-                    // LIBERAMOS EL ID ANTES DE ENVIAR LA SIGUIENTE
+                    piezaActual.EstaTerminada = (comando == "ACABADA" || comando == "TERMINADA");
                     _idPiezaEnviadaActual = null;
 
-                    Log.Information($"[RECIBIDO] {piezaActual.Nombre} marcada como {nuevaEntrada.EstadoDeLaPieza}");
-
                     SincronizarYGuardarProgreso();
-                    _ = EnviarSiguientePiezaDisponible();
+                    await EnviarSiguientePiezaDisponible();
                 }
             });
         }
