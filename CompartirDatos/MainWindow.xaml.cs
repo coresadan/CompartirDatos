@@ -29,6 +29,7 @@ namespace CompartirDatos
     /// </summary>
     /// 
 
+
     public partial class MainWindow : Window
     {
         // 1. SEMÁFOROS
@@ -49,13 +50,14 @@ namespace CompartirDatos
                 }
             }
         }
+
         public async Task SincronizarYGuardarProgreso()
         {
             ConfiguracionApp.misAjustes.ListaPiezasTerminadas = listaDePiezas.ToList();
 
             ConfiguracionApp.misAjustes.GuardarConfiguracionEnDisco();
             Log.Information("SISTEMA💾 Progreso guardado correctamente.");
-         // LANZAMOS LA SINCRONIZACIÓN AL BOT TAMBIÉN
+            // LANZAMOS LA SINCRONIZACIÓN AL BOT TAMBIÉN
             await SincronizarConAPI();
         }
         public static class EstadosPieza
@@ -67,6 +69,40 @@ namespace CompartirDatos
             public const string Falta = "FALTA/RECHAZO";
         }
 
+        public async void CargarDatosDesdeAPI()
+        {
+            try
+            {
+                using (HttpClient client = new HttpClient())
+                {
+                    string baseUrl = "http://localhost:5106";
+
+                    var sesion = await client.GetFromJsonAsync<SesionInfo>($"{baseUrl}/Produccion/UltimaListaAbierta");
+
+                    if (sesion != null && !string.IsNullOrEmpty(sesion.NombreArchivo))
+                    {
+                        string urlPiezas = $"{baseUrl}/DimePiezasLista/{sesion.NombreArchivo}";
+                        var piezasGuardadas = await client.GetFromJsonAsync<List<CaracteristicasDePiezas>>(urlPiezas);
+
+                        if (piezasGuardadas != null)
+                        {
+                            listaDePiezas.Clear();
+                            foreach (var p in piezasGuardadas)
+                            {
+                                listaDePiezas.Add(p);
+                            }
+                            this.Title = $"Oficina - Lista Actual: {sesion.NombreArchivo}";
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Aviso: Sin sesión previa o API off: {ex.Message}");
+            }
+        }
+
+        public class SesionInfo { public string NombreArchivo { get; set; } }
         public async Task EnviarSiguientePiezaDisponible()
         {
             if (_idPiezaEnviadaActual != null)
@@ -102,27 +138,12 @@ namespace CompartirDatos
         {
             InitializeComponent();
             DataContext = this;
+            CargarDatosDesdeAPI();
             _ = SincronizarConAPI();
 
             SetVisibilidadControles(Visibility.Hidden);
 
-            DatabaseService.InicializarBaseDeDatos();
-
-            var piezasGuardadas = DatabaseService.CargarPiezasDesdeBD();
-
             dgPiezas.ItemsSource = listaDePiezas;
-
-            if (piezasGuardadas.Count > 0)
-            {
-                listaDePiezas.Clear();
-
-                foreach (var p in piezasGuardadas)
-                {
-                    listaDePiezas.Add(p);
-                }
-                ArrastrarElArchivoLabel.Visibility = Visibility.Hidden;
-                Log.Information($"SISTEMA💾 Se han recuperado {piezasGuardadas.Count} piezas de la base de datos.");
-            }
 
             miConexion = new ConexionConMiAPI();
             ConfiguracionApp.misAjustes = ConfiguracionApp.CargarConfiguracion();
@@ -299,7 +320,7 @@ namespace CompartirDatos
 
         private async void Window_Loaded(object sender, RoutedEventArgs e)
         {
-            DatabaseService.InicializarBaseDeDatos();
+            CargarDatosDesdeAPI();
             try
             {
                 // Cargamos los usuarios sin bloquear la UI
@@ -422,9 +443,31 @@ namespace CompartirDatos
 
         private async Task NotificarCambioEstadoApi(int idPieza, string estado)
         {
-            using var client = new HttpClient();
-            // Llamamos a nuestra nueva API
-            await client.PostAsync($"http://localhost:5106/Produccion/ActualizarEstado?id={idPieza}&nuevoEstado={estado}", null);
+            int idParaEnviar = _usuarioActivo?.Id ?? 0;
+
+            try
+            {
+                using var client = new HttpClient();
+
+                string url = $"http://localhost:5106/Produccion/ActualizarEstado?id={idPieza}&nuevoEstado={estado}&usuarioId={idParaEnviar}";
+
+                Log.Information($"📡 Enviando a API: Pieza {idPieza}, Estado {estado}, Usuario {idParaEnviar}");
+
+                var response = await client.PostAsync(url, null);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    Log.Information("✅ Histórico actualizado correctamente en la base de datos.");
+                }
+                else
+                {
+                    Log.Warning($"⚠️ La API respondió con error: {response.StatusCode}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"❌ Error al conectar con la API: {ex.Message}");
+            }
         }
 
         private async void PiezaTerminadaBotonClick(object sender, RoutedEventArgs e)
@@ -656,11 +699,30 @@ namespace CompartirDatos
 
         private async void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            if (_usuarioActivo != null)
+            e.Cancel = true;
+
+            Log.Information("Cerrando sistema... intentando despedir al operario.");
+
+            try
             {
-                await GestionUsuarios.EnviarFinTurno(_usuarioActivo);
+                if (_usuarioActivo != null)
+                {
+                    Log.Information($"Despidiendo a: {_usuarioActivo.Nombre}");
+                    await GestionUsuarios.EnviarFinTurno(_usuarioActivo);
+                }
+
+                await SincronizarYGuardarProgreso();
             }
-            SincronizarYGuardarProgreso();
+            catch (Exception ex)
+            {
+                Log.Warning($"Cierre rápido forzado: {ex.Message}");
+            }
+            finally
+            {
+                this.Closing -= Window_Closing;
+
+                Dispatcher.BeginInvoke(new Action(() => this.Close()));
+            }
         }
 
 
@@ -881,38 +943,82 @@ namespace CompartirDatos
             }
         }
 
+        private async Task FinalizarTurnoActivo()
+        {
+            if (_usuarioActivo == null) return;
+
+            try
+            {
+                using var client = new HttpClient();
+                var response = await client.PostAsJsonAsync("http://localhost:5106/turnos/finalizar", _usuarioActivo);
+
+                if (response.IsSuccessStatusCode)
+                    Log.Information($"🚪 Sesión cerrada en DB para: {_usuarioActivo.Nombre}");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"❌ No se pudo cerrar la sesión en la API: {ex.Message}");
+            }
+        }
 
         private async void ComboBox_SeleccionUsuario(object sender, SelectionChangedEventArgs e)
         {
             var seleccionado = cbUsuarios.SelectedItem as Usuario;
-            if (seleccionado == null) return;
+            if (seleccionado == null || seleccionado == _usuarioActivo) return;
 
+            // Pedimos el PIN
             string pinIntroducido = Microsoft.VisualBasic.Interaction.InputBox($"PIN para {seleccionado.Nombre}:", "Acceso de Seguridad");
 
-            if (pinIntroducido == seleccionado.Pin)
+            if (pinIntroducido == seleccionado.Pin?.ToString())
             {
-                if (_usuarioActivo != null && _usuarioActivo.Pin != seleccionado.Pin)
+                if (_usuarioActivo != null)
                 {
-                    await GestionUsuarios.EnviarFinTurno(_usuarioActivo);
-                    Log.Information($"⏱️ Relevo: Turno de {_usuarioActivo.Nombre} finalizado.");
+                    Log.Information($"⏱️ Relevo: Cerrando turno de {_usuarioActivo.Nombre} (ID: {_usuarioActivo.Id})");
+                    await FinalizarTurnoActivo();
                 }
 
-                _usuarioActivo = seleccionado;
-                await GestionUsuarios.EnviarInicioTurno(_usuarioActivo);
-                SetVisibilidadControles(Visibility.Visible);
-                Log.Information($"🚀 Turno iniciado correctamente para {_usuarioActivo.Nombre}");
+                try
+                {
+                    using var client = new HttpClient();
+                    var response = await client.PostAsJsonAsync("http://localhost:5106/turnos/iniciar", seleccionado);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var contenido = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+                        // Pillamos el ID real de la DB para el histórico
+                        if (contenido.TryGetProperty("usuarioId", out JsonElement idProp))
+                        {
+                            seleccionado.Id = idProp.GetInt32();
+                        }
+                        _usuarioActivo = seleccionado;
+                        SetVisibilidadControles(Visibility.Visible);
+
+                        Log.Information($"🚀 Sesión registrada en DB: {_usuarioActivo.Nombre} (ID: {_usuarioActivo.Id})");
+
+                        await SincronizarConAPI();
+                    }
+                    else
+                    {
+                        MessageBox.Show("Error al registrar sesión en la API.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"❌ Error de conexión: {ex.Message}");
+                }
             }
             else
             {
-
-                Log.Warning($"🚫 Intento de acceso fallido para {seleccionado.Nombre}");
-
+                Log.Warning($"🚫 PIN incorrecto para {seleccionado.Nombre}");
+                cbUsuarios.SelectionChanged -= ComboBox_SeleccionUsuario;
                 cbUsuarios.SelectedItem = _usuarioActivo;
+                cbUsuarios.SelectionChanged += ComboBox_SeleccionUsuario;
 
-                System.Windows.MessageBox.Show("PIN incorrecto. No se ha cambiado el usuario.", "Error de Autenticación", MessageBoxButton.OK, MessageBoxImage.Error);
+                if (!string.IsNullOrEmpty(pinIntroducido))
+                    MessageBox.Show("PIN incorrecto.", "Seguridad", MessageBoxButton.OK, MessageBoxImage.Stop);
             }
         }
-
 
         private async void botonAnadirUsuarioClick(object sender, RoutedEventArgs e)
         {
@@ -1023,56 +1129,81 @@ namespace CompartirDatos
 
             Dispatcher.Invoke(async () =>
             {
-                // --- CASO 0: LIBERACIÓN ---
                 if (comando == "LIBRE" || comando == "LISTA_CANCELADA_POR_TRABAJADOR")
                 {
                     _idPiezaEnviadaActual = null;
-                    Log.Information($"✅ Sistema liberado por comando: {comando}");
                     return;
                 }
 
-                // --- CASO 1: SOLICITUD DE PIEZA ---
                 if (comando == "SOLICITAR_PIEZA_ACTUAL")
                 {
                     var piezaParaEnviar = listaDePiezas
                         .Where(p => (p.Estado == "Pendiente" || p.Estado == "Urgente") && !p.EstaTerminada)
-                        .OrderByDescending(p => p.Piezaurgente)
-                        .FirstOrDefault();
+                        .OrderByDescending(p => p.Piezaurgente).FirstOrDefault();
 
                     if (piezaParaEnviar != null)
                     {
-                        _idPiezaEnviadaActual = piezaParaEnviar.Id; // Guardamos el ID (int)
-
-                        // USAMOS EL MÉTODO REAL DEL EMISOR:
+                        _idPiezaEnviadaActual = piezaParaEnviar.Id;
                         await _emisor.EnviarPiezaAsync(piezaParaEnviar);
-
-                        Log.Information($"Sent✅ Enviada pieza {piezaParaEnviar.Nombre}");
-                    }
-                    else
-                    {
-                        _idPiezaEnviadaActual = null;
-                        // Enviamos un texto vacío o null usando el método de respuestas
-                        await _emisor.EnviarRespuestaOficinaAsync("null");
-                        Log.Information("Sent🏁 No hay más piezas pendientes.");
                     }
                     return;
                 }
-
-                // --- CASO 2: PROCESAR RESULTADO ---
                 var idABuscar = idRecibido ?? _idPiezaEnviadaActual?.ToString();
                 var piezaActual = listaDePiezas.FirstOrDefault(p => p.Id.ToString() == idABuscar);
 
                 if (piezaActual != null)
                 {
-                    piezaActual.EstaTerminada = (comando == "ACABADA" || comando == "TERMINADA");
+                    bool estaAcabada = (comando == "ACABADA" || comando == "TERMINADA");
+                    piezaActual.EstaTerminada = estaAcabada;
                     _idPiezaEnviadaActual = null;
 
                     SincronizarYGuardarProgreso();
+
+                    if (estaAcabada && _usuarioActivo != null)
+                    {
+                        await NotificarCambioEstadoApi(piezaActual.Id, "Terminado", _usuarioActivo.Id);
+                        Log.Information($"🕵️‍♂️ Histórico enviado: Pieza {piezaActual.Id} por Operario ID: {_usuarioActivo.Id}");
+                    }
+
                     await EnviarSiguientePiezaDisponible();
+                    await SincronizarConAPI();
                 }
             });
         }
 
+        private async Task NotificarCambioEstadoApi(int piezaId, string estado, int usuarioId)
+        {
+
+            Log.Information($"DEBUG: Intentando enviar Histórico -> Pieza: {piezaId}, Estado: {estado}, UserID: {usuarioId}");
+
+            if (usuarioId <= 0)
+            {
+                Log.Error($"❌ ERROR: El ID de usuario es {usuarioId}. Abortando envío a histórico.");
+                return;
+            }
+
+            try
+            {
+                using var client = new HttpClient();
+                string url = $"http://localhost:5106/Produccion/ActualizarEstado?id={piezaId}&nuevoEstado={estado}&usuarioId={usuarioId}";
+
+                var response = await client.PostAsync(url, null);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    Log.Information($"🚀 [API OK] Histórico registrado: Pieza {piezaId} por Operario {usuarioId}");
+                }
+                else
+                {
+                    string errorDetalle = await response.Content.ReadAsStringAsync();
+                    Log.Warning($"⚠️ [API ERROR] Código: {response.StatusCode} - Detalle: {errorDetalle}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"❌ Error crítico de conexión con API: {ex.Message}");
+            }
+        }
         private async void BtnNotificarCarga_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -1119,14 +1250,17 @@ namespace CompartirDatos
 
         private async void botonCerrarSesionClick(object sender, RoutedEventArgs e)
         {
+            botonCerrarSesion.IsEnabled = false;
+
             var usuarioQueSale = _usuarioActivo;
 
             if (usuarioQueSale != null)
             {
                 try
                 {
+                    Log.Information($"🚪 Finalizando turno para: {usuarioQueSale.Nombre} (ID: {usuarioQueSale.Id})");
+
                     await GestionUsuarios.EnviarFinTurno(usuarioQueSale);
-                    Log.Information($"🚪 Sesión finalizada: {usuarioQueSale.Nombre}");
 
                     cbUsuarios.SelectionChanged -= ComboBox_SeleccionUsuario;
                     cbUsuarios.SelectedItem = null;
@@ -1135,11 +1269,19 @@ namespace CompartirDatos
 
                     SetVisibilidadControles(Visibility.Hidden);
 
+                    Log.Information($"✅ Sesión finalizada correctamente en DB para {usuarioQueSale.Nombre}");
+
                     MessageBox.Show("Sesión cerrada correctamente.", "Santos - Seguridad");
                 }
                 catch (Exception ex)
                 {
                     Log.Error($"❌ Error al cerrar sesión: {ex.Message}");
+                    MessageBox.Show("No se pudo cerrar la sesión en el servidor, pero se cerrará localmente.", "Aviso");
+                }
+                finally
+                {
+                    // Pase lo que pase, rehabilitamos el botón por si entra otro
+                    botonCerrarSesion.IsEnabled = true;
                 }
             }
         }
@@ -1173,5 +1315,8 @@ namespace CompartirDatos
                 Log.Warning($"API⚠️ No se pudo conectar con la API (¿Está apagada?): {ex.Message}");
             }
         }
+
+        public string NombreArchivo { get; set; }
+
     }
 }

@@ -5,6 +5,7 @@ using System.Collections.Generic;
 
 namespace CompartirDatos
 {
+    [Obsolete("No usar", true)]
     public static class DatabaseService
     {
         private static string dbPath = @"C:\pruebas\BDPiezas.s3db";

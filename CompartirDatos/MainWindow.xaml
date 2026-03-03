@@ -327,10 +327,10 @@ Foreground="White" Padding="10,5" Margin="25,0,24,190" Grid.Column="3"
 
 Grid.Row="1" Height="27" VerticalAlignment="Bottom"/>
 
-
             <Button Grid.Column="2" Content="Pieza Terminada"
 
-Margin="0,0,10,156" Grid.Row="1" Name="PiezaTerminadaBoton"
+
+                Margin="0,0,10,156" Grid.Row="1" Name="PiezaTerminadaBoton"
 
 Click="PiezaTerminadaBotonClick" FontSize="16" Height="59"
 
