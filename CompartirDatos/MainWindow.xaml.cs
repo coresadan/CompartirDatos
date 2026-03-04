@@ -105,6 +105,13 @@ namespace CompartirDatos
         public class SesionInfo { public string NombreArchivo { get; set; } }
         public async Task EnviarSiguientePiezaDisponible()
         {
+            // 🛑 ESCUDO DE SEGURIDAD: Si no hay usuario activo, abortamos el envío.
+            if (_usuarioActivo == null)
+            {
+                Log.Warning("PIPE🚫 Intento de envío cancelado: No hay usuario logueado en Oficina.");
+                return;
+            }
+
             if (_idPiezaEnviadaActual != null)
             {
                 Log.Information($"PIPEℹ️ El trabajador ya tiene la pieza {_idPiezaEnviadaActual} en pantalla. Esperando finalización.");
@@ -127,6 +134,7 @@ namespace CompartirDatos
             else
             {
                 _idPiezaEnviadaActual = null;
+                // Solo enviamos el "null" (fin de lista) si realmente estamos trabajando
                 await _emisor.EnviarPiezaAsync(null);
                 Log.Warning("PIPE⚠️ No quedan piezas pendientes en la lista.");
             }
@@ -699,29 +707,36 @@ namespace CompartirDatos
 
         private async void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
+            // 1. Bloqueamos el cierre inmediato para que nos dé tiempo a avisar a todos
             e.Cancel = true;
-
-            Log.Information("Cerrando sistema... intentando despedir al operario.");
+            Log.Information("Cerrando sistema... Sincronizando y bloqueando terminales.");
 
             try
             {
+                // 2. Avisamos al trabajador INMEDIATAMENTE para que se bloquee
+                await _emisor.EnviarRespuestaOficinaAsync("SESION_FINALIZADA");
+
                 if (_usuarioActivo != null)
                 {
-                    Log.Information($"Despidiendo a: {_usuarioActivo.Nombre}");
+                    Log.Information($"Finalizando turno de: {_usuarioActivo.Nombre} antes de salir.");
+                    // Notificamos a la API
                     await GestionUsuarios.EnviarFinTurno(_usuarioActivo);
                 }
 
+                // 3. Guardamos los datos locales para no perder nada
                 await SincronizarYGuardarProgreso();
             }
             catch (Exception ex)
             {
-                Log.Warning($"Cierre rápido forzado: {ex.Message}");
+                Log.Warning($"Aviso: Cierre con errores pendientes (posible falta de red): {ex.Message}");
             }
             finally
             {
+                // 4. Quitamos el evento para evitar bucles infinitos y cerramos de verdad
                 this.Closing -= Window_Closing;
 
-                Dispatcher.BeginInvoke(new Action(() => this.Close()));
+                // Usamos Invoke para asegurar que el cierre ocurre en el hilo de la interfaz
+                Dispatcher.Invoke(() => this.Close());
             }
         }
 
@@ -991,10 +1006,15 @@ namespace CompartirDatos
                         {
                             seleccionado.Id = idProp.GetInt32();
                         }
+
                         _usuarioActivo = seleccionado;
                         SetVisibilidadControles(Visibility.Visible);
 
                         Log.Information($"🚀 Sesión registrada en DB: {_usuarioActivo.Nombre} (ID: {_usuarioActivo.Id})");
+
+                        // --- CAMBIO CLAVE: DESBLOQUEAMOS EL VISOR DEL TRABAJADOR ---
+                        await _emisor.EnviarRespuestaOficinaAsync("SESION_INICIADA");
+                        // ----------------------------------------------------------
 
                         await SincronizarConAPI();
                     }
@@ -1011,6 +1031,8 @@ namespace CompartirDatos
             else
             {
                 Log.Warning($"🚫 PIN incorrecto para {seleccionado.Nombre}");
+
+                // Revertimos la selección en el combo
                 cbUsuarios.SelectionChanged -= ComboBox_SeleccionUsuario;
                 cbUsuarios.SelectedItem = _usuarioActivo;
                 cbUsuarios.SelectionChanged += ComboBox_SeleccionUsuario;
@@ -1129,48 +1151,91 @@ namespace CompartirDatos
 
             Dispatcher.Invoke(async () =>
             {
+                // --- 1. GESTIÓN DE ESTADOS DE CONEXIÓN ---
                 if (comando == "LIBRE" || comando == "LISTA_CANCELADA_POR_TRABAJADOR")
                 {
                     _idPiezaEnviadaActual = null;
                     return;
                 }
 
+                // --- 2. GESTIÓN DE SOLICITUD DE PIEZA ---
                 if (comando == "SOLICITAR_PIEZA_ACTUAL")
                 {
+                    // 🛡️ FILTRO DE SEGURIDAD: ¿Hay alguien al mando?
+                    if (_usuarioActivo == null)
+                    {
+                        Log.Warning("⚠️ Petición de pieza denegada: No hay sesión activa en Oficina. Bloqueando visor.");
+                        // Le mandamos un "cierre de sesión" al trabajador para que se bloquee
+                        await _emisor.EnviarRespuestaOficinaAsync("SESION_FINALIZADA");
+                        return;
+                    }
+
+                    // Si hay usuario, buscamos la pieza con tu lógica (que está muy bien tirada por la prioridad de Urgente)
                     var piezaParaEnviar = listaDePiezas
-                        .Where(p => (p.Estado == "Pendiente" || p.Estado == "Urgente") && !p.EstaTerminada)
-                        .OrderByDescending(p => p.Piezaurgente).FirstOrDefault();
+                        .Where(p => (p.Estado == "Pendiente" || p.Estado == "Urgente")
+                                    && !p.EstaTerminada
+                                    && (p.Datos == null || !p.Datos.Falta))
+                        .OrderByDescending(p => p.Piezaurgente)
+                        .FirstOrDefault();
 
                     if (piezaParaEnviar != null)
                     {
                         _idPiezaEnviadaActual = piezaParaEnviar.Id;
                         await _emisor.EnviarPiezaAsync(piezaParaEnviar);
+                        Log.Information($"🔄 Sincronización: Enviada pieza {piezaParaEnviar.Id} a petición del trabajador.");
+                    }
+                    else
+                    {
+                        // Si no hay piezas, le avisamos que está libre
+                        _idPiezaEnviadaActual = null;
+                        await _emisor.EnviarRespuestaOficinaAsync("LIBRE");
                     }
                     return;
                 }
+                // --- 3. PROCESAMIENTO DE RESPUESTA DE PIEZA (ACABADA O FALTA) ---
                 var idABuscar = idRecibido ?? _idPiezaEnviadaActual?.ToString();
                 var piezaActual = listaDePiezas.FirstOrDefault(p => p.Id.ToString() == idABuscar);
 
                 if (piezaActual != null)
                 {
-                    bool estaAcabada = (comando == "ACABADA" || comando == "TERMINADA");
-                    piezaActual.EstaTerminada = estaAcabada;
-                    _idPiezaEnviadaActual = null;
+                    // Identificamos el tipo de respuesta
+                    bool esTerminada = (comando == "ACABADA" || comando == "TERMINADA");
+                    bool esFalta = (comando == "FALTA" || comando == "INCIDENCIA");
 
-                    SincronizarYGuardarProgreso();
-
-                    if (estaAcabada && _usuarioActivo != null)
+                    if (esTerminada)
                     {
-                        await NotificarCambioEstadoApi(piezaActual.Id, "Terminado", _usuarioActivo.Id);
-                        Log.Information($"🕵️‍♂️ Histórico enviado: Pieza {piezaActual.Id} por Operario ID: {_usuarioActivo.Id}");
+                        piezaActual.EstaTerminada = true;
+                        piezaActual.Estado = "Terminado";
                     }
 
-                    await EnviarSiguientePiezaDisponible();
-                    await SincronizarConAPI();
+                    if (esFalta)
+                    {
+                        piezaActual.Estado = "Falta";
+                        if (piezaActual.Datos != null)
+                        {
+                            piezaActual.Datos.Falta = true;
+                        }
+                    }
+
+                    _idPiezaEnviadaActual = null;
+                    SincronizarYGuardarProgreso();
+
+                    if (_usuarioActivo != null)
+                    {
+                        string estadoParaApi = esTerminada ? "Terminado" : (esFalta ? "Falta" : "Pendiente");
+
+                        if (esTerminada || esFalta)
+                        {
+                            await NotificarCambioEstadoApi(piezaActual.Id, estadoParaApi, _usuarioActivo.Id);
+                            Log.Information($"📡 [API OK] Enviado estado '{estadoParaApi}' para la pieza {piezaActual.Id}");
+                        }
+                    }
+
+                    await EnviarSiguientePiezaDisponible(); 
+                    await SincronizarConAPI();             
                 }
             });
         }
-
         private async Task NotificarCambioEstadoApi(int piezaId, string estado, int usuarioId)
         {
 
@@ -1208,43 +1273,56 @@ namespace CompartirDatos
         {
             try
             {
-                // RESET DE EMERGENCIA: Forzamos el desbloqueo al pulsar.
+                // 1. SEGURIDAD: Si no hay login en oficina, no sale ni un bit
+                if (_usuarioActivo == null)
+                {
+                    MessageBox.Show("Debe iniciar sesión con su PIN para enviar cargas a fábrica.", "Acceso Denegado", MessageBoxButton.OK, MessageBoxImage.Stop);
+                    return;
+                }
+
+                // RESET DE CONTROL: Limpiamos el ID actual
                 _idPiezaEnviadaActual = null;
 
-                // Buscamos la siguiente pieza (Filtro moderno: no terminada y sin falta)
-                var siguiente = listaDePiezas.FirstOrDefault(p => !p.EstaTerminada && !p.Datos.Falta);
+                // Buscamos la siguiente pieza disponible
+                var siguiente = listaDePiezas.FirstOrDefault(p => !p.EstaTerminada && (p.Datos == null || !p.Datos.Falta));
 
                 if (siguiente != null)
                 {
-                    MessageBoxResult respuesta = MessageBox.Show("Solicitando sincronización con la Fáfrica... Continuar?", "Sincronización", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                    MessageBoxResult respuesta = MessageBox.Show($"¿Desea enviar la pieza [{siguiente.Nombre}] a la fábrica?", "Sincronización Manual", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
                     if (respuesta == MessageBoxResult.Yes)
                     {
-                        // Marcamos como ocupado solo para la nueva pieza
-                        _idPiezaEnviadaActual = siguiente.Id;
+                        // 🚀 CLAVE 1: Despertamos al trabajador antes de mandarle el JSON
+                        await _emisor.EnviarRespuestaOficinaAsync("SESION_INICIADA");
 
+                        // Un pequeño respiro para que el Pipe no se atragante (100ms)
+                        await Task.Delay(100);
+
+                        // 🚀 CLAVE 2: Marcamos y enviamos la pieza
+                        _idPiezaEnviadaActual = siguiente.Id;
                         await _emisor.EnviarPiezaAsync(siguiente);
-                        Log.Information($"🚀 Sistema liberado y pieza enviada: {siguiente.Nombre}");
+
+                        Log.Information($"🚀 Sincronización manual: Pieza {siguiente.Id} enviada por {_usuarioActivo.Nombre}");
                     }
-                    if (respuesta == MessageBoxResult.No)
+                    else
                     {
-                        MessageBox.Show("Sincronización cancelada. El sistema sigue esperando.", "Sincronización", MessageBoxButton.OK, MessageBoxImage.Information);
-                        Log.Information("🚫 Sincronización cancelada por el usuario. El sistema sigue esperando.");
+                        Log.Information("🚫 Sincronización cancelada por el usuario.");
                     }
                 }
                 else
                 {
-                    // Si no hay nada apto, limpiamos el visor del trabajador
-                    await _emisor.EnviarPiezaAsync(null);
+                    // 🚀 CLAVE 3: Si realmente no hay nada, mandamos el comando que la Fábrica entiende como fin
+                    await _emisor.EnviarRespuestaOficinaAsync("FIN_LISTA");
 
                     if (!listaDePiezas.Any(p => !p.EstaTerminada))
                     {
-                        MessageBox.Show("¡Lista de Piezas finalizada! Has terminado toda la lista.", "Producción");
+                        MessageBox.Show("¡Lista de Piezas finalizada! No hay más trabajo pendiente.", "Producción");
                     }
                 }
             }
             catch (Exception ex)
             {
-                Log.Error($"❌ Error en el flujo de envío: {ex.Message}");
+                Log.Error($"❌ Error en el flujo de envío manual: {ex.Message}");
             }
         }
 
@@ -1260,14 +1338,20 @@ namespace CompartirDatos
                 {
                     Log.Information($"🚪 Finalizando turno para: {usuarioQueSale.Nombre} (ID: {usuarioQueSale.Id})");
 
+                    // 1. Notificamos al servidor/API el fin del turno
                     await GestionUsuarios.EnviarFinTurno(usuarioQueSale);
 
+                    // 2. Limpiamos la interfaz de la oficina
                     cbUsuarios.SelectionChanged -= ComboBox_SeleccionUsuario;
                     cbUsuarios.SelectedItem = null;
                     _usuarioActivo = null;
                     cbUsuarios.SelectionChanged += ComboBox_SeleccionUsuario;
 
                     SetVisibilidadControles(Visibility.Hidden);
+
+                    // Enviamos el comando de texto plano por el Pipe
+                    await _emisor.EnviarRespuestaOficinaAsync("SESION_FINALIZADA");
+                    // -------------------------------------------------------
 
                     Log.Information($"✅ Sesión finalizada correctamente en DB para {usuarioQueSale.Nombre}");
 
@@ -1276,16 +1360,19 @@ namespace CompartirDatos
                 catch (Exception ex)
                 {
                     Log.Error($"❌ Error al cerrar sesión: {ex.Message}");
+
+                    // Si falla la red, al menos intentamos bloquear al trabajador por seguridad
+                    await _emisor.EnviarRespuestaOficinaAsync("SESION_FINALIZADA");
+
                     MessageBox.Show("No se pudo cerrar la sesión en el servidor, pero se cerrará localmente.", "Aviso");
                 }
                 finally
                 {
-                    // Pase lo que pase, rehabilitamos el botón por si entra otro
+                    // Pase lo que pase, rehabilitamos el botón por si entra otro usuario
                     botonCerrarSesion.IsEnabled = true;
                 }
             }
         }
-
         private void SetVisibilidadControles(Visibility estado)
         {
             PiezaTerminadaBoton.Visibility = estado;
@@ -1299,23 +1386,30 @@ namespace CompartirDatos
             try
             {
                 using var client = new HttpClient();
-                // Puerto 5000 como confirmamos antes
                 string url = "http://localhost:5106/Produccion/Sincronizar";
 
-                // Enviamos la lista actual a la API
                 var response = await client.PostAsJsonAsync(url, listaDePiezas);
 
                 if (response.IsSuccessStatusCode)
                 {
                     Log.Information("TELEGRAMBot🤖 Datos sincronizados correctamente.");
+
+                    if (_usuarioActivo != null)
+                    {
+                        Log.Information("🔄 Sesión activa detectada. Refrescando pieza en fábrica...");
+                        await EnviarSiguientePiezaDisponible();
+                    }
+                    else
+                    {
+                        Log.Warning("ℹ️ Sincronización API OK, pero no se envía pieza (Sin sesión activa).");
+                    }
                 }
             }
             catch (Exception ex)
             {
-                Log.Warning($"API⚠️ No se pudo conectar con la API (¿Está apagada?): {ex.Message}");
+                Log.Warning($"API⚠️ No se pudo conectar con la API: {ex.Message}");
             }
         }
-
         public string NombreArchivo { get; set; }
 
     }
